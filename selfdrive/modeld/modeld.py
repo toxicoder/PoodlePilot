@@ -36,15 +36,17 @@ from openpilot.selfdrive.modeld.parse_model_outputs import Parser
 from openpilot.selfdrive.modeld.fill_model_msg import fill_model_msg, fill_pose_msg, PublishState
 from openpilot.selfdrive.modeld.constants import ModelConstants, Plan
 from openpilot.selfdrive.modeld.models.commonmodel_pyx import DrivingModelFrame, CLContext
+from openpilot.common.params import Params # Added for reading DrivingModel param
 
 
 PROCESS_NAME = "selfdrive.modeld.modeld"
 SEND_RAW_PRED = os.getenv('SEND_RAW_PRED')
 
-VISION_PKL_PATH = Path(__file__).parent / 'models/driving_vision_tinygrad.pkl'
-POLICY_PKL_PATH = Path(__file__).parent / 'models/driving_policy_tinygrad.pkl'
-VISION_METADATA_PATH = Path(__file__).parent / 'models/driving_vision_metadata.pkl'
-POLICY_METADATA_PATH = Path(__file__).parent / 'models/driving_policy_metadata.pkl'
+# Default model paths (can be part of MODEL_FILE_SETS)
+# VISION_PKL_PATH = Path(__file__).parent / 'models/driving_vision_tinygrad.pkl'
+# POLICY_PKL_PATH = Path(__file__).parent / 'models/driving_policy_tinygrad.pkl'
+# VISION_METADATA_PATH = Path(__file__).parent / 'models/driving_vision_metadata.pkl'
+# POLICY_METADATA_PATH = Path(__file__).parent / 'models/driving_policy_metadata.pkl'
 
 LAT_SMOOTH_SECONDS = 0.0
 LONG_SMOOTH_SECONDS = 0.0
@@ -86,14 +88,47 @@ class ModelState:
   prev_desire: np.ndarray  # for tracking the rising edge of the pulse
 
   def __init__(self, context: CLContext):
-    with open(VISION_METADATA_PATH, 'rb') as f:
+    params = Params()
+    selected_model_name = params.get("DrivingModel", encoding='utf-8')
+    if selected_model_name is None:
+      cloudlog.warning("DrivingModel param not set, using default model name 'default_tinygrad'.")
+      selected_model_name = "default_tinygrad" # This key needs to exist in MODEL_FILE_SETS
+
+    models_base_path = Path(__file__).parent / 'models'
+
+    MODEL_FILE_SETS = {
+      "default_tinygrad": { # Default model key
+        "vision_pkl": models_base_path / "driving_vision_tinygrad.pkl",
+        "policy_pkl": models_base_path / "driving_policy_tinygrad.pkl",
+        "vision_metadata": models_base_path / "driving_vision_metadata.pkl",
+        "policy_metadata": models_base_path / "driving_policy_metadata.pkl",
+      },
+      # Example for adding another model:
+      # "experimental_v1": {
+      #   "vision_pkl": models_base_path / "experimental_v1_vision.pkl",
+      #   "policy_pkl": models_base_path / "experimental_v1_policy.pkl",
+      #   "vision_metadata": models_base_path / "experimental_v1_vision_metadata.pkl",
+      #   "policy_metadata": models_base_path / "experimental_v1_policy_metadata.pkl",
+      # }
+    }
+
+    model_files = MODEL_FILE_SETS.get(selected_model_name)
+    if model_files is None:
+      cloudlog.error(f"Model files for DrivingModel '{selected_model_name}' not found in MODEL_FILE_SETS. Falling back to 'default_tinygrad'.")
+      model_files = MODEL_FILE_SETS["default_tinygrad"]
+
+    cloudlog.info(f"Loading driving model: {selected_model_name}")
+    cloudlog.info(f"  Vision PKL: {model_files['vision_pkl']}")
+    cloudlog.info(f"  Policy PKL: {model_files['policy_pkl']}")
+
+    with open(model_files["vision_metadata"], 'rb') as f:
       vision_metadata = pickle.load(f)
       self.vision_input_shapes =  vision_metadata['input_shapes']
       self.vision_input_names = list(self.vision_input_shapes.keys())
       self.vision_output_slices = vision_metadata['output_slices']
       vision_output_size = vision_metadata['output_shapes']['outputs'][1]
 
-    with open(POLICY_METADATA_PATH, 'rb') as f:
+    with open(model_files["policy_metadata"], 'rb') as f:
       policy_metadata = pickle.load(f)
       self.policy_input_shapes =  policy_metadata['input_shapes']
       self.policy_output_slices = policy_metadata['output_slices']
@@ -123,10 +158,10 @@ class ModelState:
     self.policy_output = np.zeros(policy_output_size, dtype=np.float32)
     self.parser = Parser()
 
-    with open(VISION_PKL_PATH, "rb") as f:
+    with open(model_files["vision_pkl"], "rb") as f:
       self.vision_run = pickle.load(f)
 
-    with open(POLICY_PKL_PATH, "rb") as f:
+    with open(model_files["policy_pkl"], "rb") as f:
       self.policy_run = pickle.load(f)
 
   def slice_outputs(self, model_outputs: np.ndarray, output_slices: dict[str, slice]) -> dict[str, np.ndarray]:

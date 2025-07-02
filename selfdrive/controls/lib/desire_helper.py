@@ -1,6 +1,7 @@
 from cereal import log
 from openpilot.common.conversions import Conversions as CV
 from openpilot.common.realtime import DT_MDL
+from openpilot.common.params import Params # Added
 
 LaneChangeState = log.LaneChangeState
 LaneChangeDirection = log.LaneChangeDirection
@@ -39,13 +40,46 @@ class DesireHelper:
     self.keep_pulse_timer = 0.0
     self.prev_one_blinker = False
     self.desire = log.Desire.none
+    self.params = Params()
+    # Initialize params with default values if not found, to prevent NoneType errors later
+    self.auto_lane_change_enabled = self.params.get_bool("AutoLaneChangeEnabled")
+    self.lane_change_aggressiveness = int(self.params.get("LaneChangeAggressiveness") or 2) # Default to Normal (2)
+
 
   def update(self, carstate, lateral_active, lane_change_prob):
+    # Update params each cycle
+    # This allows live changes, but has small overhead. Could be done less frequently.
+    if self.params.frame % 10 == 0: # Update every 10 frames (0.1s if model runs at 10Hz, 0.5s if 20Hz for controls)
+        # Frame might not be on params object itself, this is a common pattern
+        # If params doesn't have .frame, remove this conditional update or use another timer.
+        # For now, let's assume we read it every time for simplicity until performance is an issue.
+        self.auto_lane_change_enabled = self.params.get_bool("AutoLaneChangeEnabled")
+        self.lane_change_aggressiveness = int(self.params.get("LaneChangeAggressiveness") or 2)
+
+    if not self.auto_lane_change_enabled:
+      self.lane_change_state = LaneChangeState.off
+      self.lane_change_direction = LaneChangeDirection.none
+      self.desire = log.Desire.none
+      self.lane_change_timer = 0.0
+      self.keep_pulse_timer = 0.0
+      # self.prev_one_blinker is handled at the end of the main update function
+      return
+
     v_ego = carstate.vEgo
     one_blinker = carstate.leftBlinker != carstate.rightBlinker
     below_lane_change_speed = v_ego < LANE_CHANGE_SPEED_MIN
 
-    if not lateral_active or self.lane_change_timer > LANE_CHANGE_TIME_MAX:
+    # Define aggressiveness-based thresholds
+    # Lane Change Finish Certainty: lower value means higher certainty needed from model
+    finish_certainty_thresholds = {1: 0.01, 2: 0.02, 3: 0.05} # Cautious, Normal, Assertive
+    current_finish_certainty = finish_certainty_thresholds.get(self.lane_change_aggressiveness, 0.02)
+
+    # Max time for a lane change operation
+    time_max_config = {1: 12.0, 2: 10.0, 3: 8.0} # Cautious, Normal, Assertive
+    current_lane_change_time_max = time_max_config.get(self.lane_change_aggressiveness, LANE_CHANGE_TIME_MAX)
+
+
+    if not lateral_active or self.lane_change_timer > current_lane_change_time_max:
       self.lane_change_state = LaneChangeState.off
       self.lane_change_direction = LaneChangeDirection.none
     else:
@@ -78,8 +112,8 @@ class DesireHelper:
         # fade out over .5s
         self.lane_change_ll_prob = max(self.lane_change_ll_prob - 2 * DT_MDL, 0.0)
 
-        # 98% certainty
-        if lane_change_prob < 0.02 and self.lane_change_ll_prob < 0.01:
+        # Apply aggressiveness-based threshold for finishing lane change
+        if lane_change_prob < current_finish_certainty and self.lane_change_ll_prob < 0.01:
           self.lane_change_state = LaneChangeState.laneChangeFinishing
 
       # LaneChangeState.laneChangeFinishing

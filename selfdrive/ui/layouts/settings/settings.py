@@ -7,6 +7,7 @@ from openpilot.selfdrive.ui.layouts.settings.device import DeviceLayout
 from openpilot.selfdrive.ui.layouts.settings.firehose import FirehoseLayout
 from openpilot.selfdrive.ui.layouts.settings.software import SoftwareLayout
 from openpilot.selfdrive.ui.layouts.settings.toggles import TogglesLayout
+from openpilot.selfdrive.ui.layouts.settings.profiles_layout import ProfilesLayout # Added import
 from openpilot.system.ui.lib.application import gui_app, FontWeight
 from openpilot.system.ui.lib.text_measure import measure_text_cached
 from openpilot.selfdrive.ui.layouts.network import NetworkLayout
@@ -35,8 +36,9 @@ class PanelType(IntEnum):
   NETWORK = 1
   TOGGLES = 2
   SOFTWARE = 3
-  FIREHOSE = 4
-  DEVELOPER = 5
+  PROFILES = 4  # Inserted Profiles
+  FIREHOSE = 5
+  DEVELOPER = 6
 
 
 @dataclass
@@ -57,6 +59,7 @@ class SettingsLayout(Widget):
       PanelType.NETWORK: PanelInfo("Network", NetworkLayout()),
       PanelType.TOGGLES: PanelInfo("Toggles", TogglesLayout()),
       PanelType.SOFTWARE: PanelInfo("Software", SoftwareLayout()),
+      PanelType.PROFILES: PanelInfo("Profiles", ProfilesLayout()), # Added Profiles
       PanelType.FIREHOSE: PanelInfo("Firehose", FirehoseLayout()),
       PanelType.DEVELOPER: PanelInfo("Developer", DeveloperLayout()),
     }
@@ -150,6 +153,10 @@ class SettingsLayout(Widget):
   def set_current_panel(self, panel_type: PanelType):
     if panel_type != self._current_panel:
       self._current_panel = panel_type
+      # Call refresh on the new panel if it has the method, to update its contents
+      new_panel_instance = self._panels[self._current_panel].instance
+      if hasattr(new_panel_instance, 'refresh') and callable(getattr(new_panel_instance, 'refresh')):
+        new_panel_instance.refresh()
 
   def close_settings(self):
     if self._close_callback:

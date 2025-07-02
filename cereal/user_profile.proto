@@ -1,0 +1,61 @@
+syntax = "proto3";
+
+package openpilot.cereal;
+
+// Common settings applicable to most profiles
+message ProfileSettings {
+  // Version of this settings structure, for future migrations
+  uint32 version = 1;
+
+  // Settings based on existing params
+  // Using optional to distinguish between not set and default value (e.g. false for bool)
+  // This helps when merging profiles or applying only specified settings.
+  optional bool openpilot_enabled_toggle = 2; // Corresponds to OpenpilotEnabledToggle
+  optional bool experimental_mode = 3;        // Corresponds to ExperimentalMode
+  optional bool disengage_on_accelerator = 4; // Corresponds to DisengageOnAccelerator
+  optional int32 longitudinal_personality = 5; // Corresponds to LongitudinalPersonality (0: Aggressive, 1: Standard, 2: Relaxed)
+  optional bool is_ldw_enabled = 6;           // Corresponds to IsLdwEnabled
+  optional bool always_on_dm = 7;             // Corresponds to AlwaysOnDM
+  optional bool record_front = 8;             // Corresponds to RecordFront
+  optional bool is_metric = 9;                // Corresponds to IsMetric
+  optional bool record_audio = 10;            // Corresponds to RecordAudio
+
+  // New settings previously identified
+  optional string driving_model_name = 11;      // Name/identifier of the driving model to use
+  optional bool auto_lane_change_enabled = 12;
+  optional int32 lane_change_aggressiveness = 13; // e.g., 1: Cautious, 2: Normal, 3: Assertive
+
+  // SystemVolume deferred for now
+  // optional int32 system_volume = 14;
+}
+
+// Placeholder for model-specific parameters
+// This can be expanded significantly later or even made a oneof with different model type params.
+message DrivingModelParameters {
+  uint32 version = 1;
+  // Example:
+  // optional float steering_ratio_multiplier = 2;
+  // optional float awareness_sensitivity = 3;
+  map<string, float> float_params = 10;
+  map<string, int32> int_params = 11;
+  map<string, bool> bool_params = 12;
+  map<string, string> string_params = 13;
+}
+
+// Represents a single user profile
+message UserProfile {
+  uint32 version = 1; // Version of the UserProfile message structure itself
+  string profile_name = 2; // User-defined name for the profile, must be unique
+  ProfileSettings settings = 3;
+  optional DrivingModelParameters model_specific_params = 4; // Optional: only if this profile has model-specific overrides
+}
+
+// Wrapper message for storing a collection of all user profiles
+message UserProfilesCollection {
+  uint32 version = 1;
+  repeated UserProfile profiles = 2;
+  string current_active_profile_name = 3; // Name of the profile that should be active
+                                         // This is redundant if we also use the CurrentProfileName param,
+                                         // but can be useful for a self-contained profiles file.
+                                         // Let's keep CurrentProfileName param as the primary source of truth for active.
+}
