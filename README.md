@@ -1,109 +1,234 @@
-<div align="center" style="text-align: center;">
-
-<h1>openpilot</h1>
-
-<p>
-  <b>openpilot is an operating system for robotics.</b>
-  <br>
-  Currently, it upgrades the driver assistance system in 300+ supported cars.
-</p>
-
-<h3>
-  <a href="https://docs.comma.ai">Docs</a>
-  <span> · </span>
-  <a href="https://docs.comma.ai/contributing/roadmap/">Roadmap</a>
-  <span> · </span>
-  <a href="https://github.com/commaai/openpilot/blob/master/docs/CONTRIBUTING.md">Contribute</a>
-  <span> · </span>
-  <a href="https://discord.comma.ai">Community</a>
-  <span> · </span>
-  <a href="https://comma.ai/shop">Try it on a comma 3X</a>
-</h3>
-
-Quick start: `bash <(curl -fsSL openpilot.comma.ai)`
+# openpilot
 
 [![openpilot tests](https://github.com/commaai/openpilot/actions/workflows/selfdrive_tests.yaml/badge.svg)](https://github.com/commaai/openpilot/actions/workflows/selfdrive_tests.yaml)
 [![codecov](https://codecov.io/gh/commaai/openpilot/branch/master/graph/badge.svg)](https://codecov.io/gh/commaai/openpilot)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![X Follow](https://img.shields.io/twitter/follow/comma_ai)](https://x.com/comma_ai)
 [![Discord](https://img.shields.io/discord/469524606043160576)](https://discord.comma.ai)
+[![Version](https://img.shields.io/github/v/release/commaai/openpilot)](https://github.com/commaai/openpilot/releases/latest)
+<!-- Add other relevant badges here if available, e.g., for specific sub-components or documentation status -->
 
-</div>
+**openpilot is an open source driver assistance system.** It enhances compatible vehicles with features like Automated Lane Centering (ALC) and Adaptive Cruise Control (ACC). Developed by [comma.ai](https://comma.ai/) and the community, openpilot aims to provide a safe and reliable driving experience.
 
-<table>
-  <tr>
-    <td><a href="https://youtu.be/NmBfgOanCyk" title="Video By Greer Viau"><img src="https://github.com/commaai/openpilot/assets/8762862/2f7112ae-f748-4f39-b617-fabd689c3772"></a></td>
-    <td><a href="https://youtu.be/VHKyqZ7t8Gw" title="Video By Logan LeGrand"><img src="https://github.com/commaai/openpilot/assets/8762862/92351544-2833-40d7-9e0b-7ef7ae37ec4c"></a></td>
-    <td><a href="https://youtu.be/SUIZYzxtMQs" title="A drive to Taco Bell"><img src="https://github.com/commaai/openpilot/assets/8762862/05ceefc5-2628-439c-a9b2-89ce77dc6f63"></a></td>
-  </tr>
-</table>
+This document provides information for developers and contributors looking to understand, build, and extend openpilot. For user-facing documentation, please visit [docs.comma.ai](https://docs.comma.ai).
 
+## Table of Contents
 
-Using openpilot in a car
-------
+- [Getting Started](#getting-started)
+  - [Prerequisites](#prerequisites)
+  - [Installation](#installation)
+  - [Development Environment Setup](#development-environment-setup)
+- [Running the Application](#running-the-application)
+  - [On a comma device](#on-a-comma-device)
+  - [In Simulation](#in-simulation)
+- [Running Tests](#running-tests)
+- [Building openpilot](#building-openpilot)
+- [Deployment](#deployment)
+- [High-Level Architecture](#high-level-architecture)
+- [Contributing](#contributing)
+- [License](#license)
 
-To use openpilot in a car, you need four things:
-1. **Supported Device:** a comma 3/3X, available at [comma.ai/shop](https://comma.ai/shop/comma-3x).
-2. **Software:** The setup procedure for the comma 3/3X allows users to enter a URL for custom software. Use the URL `openpilot.comma.ai` to install the release version.
-3. **Supported Car:** Ensure that you have one of [the 275+ supported cars](docs/CARS.md).
-4. **Car Harness:** You will also need a [car harness](https://comma.ai/shop/car-harness) to connect your comma 3/3X to your car.
+## Getting Started
 
-We have detailed instructions for [how to install the harness and device in a car](https://comma.ai/setup). Note that it's possible to run openpilot on [other hardware](https://blog.comma.ai/self-driving-car-for-free/), although it's not plug-and-play.
+This section guides you through setting up your development environment for openpilot.
 
-### Branches
-| branch           | URL                                    | description                                                                         |
-|------------------|----------------------------------------|-------------------------------------------------------------------------------------|
-| `release3`         | openpilot.comma.ai                      | This is openpilot's release branch.                                                 |
-| `release3-staging` | openpilot-test.comma.ai                | This is the staging branch for releases. Use it to get new releases slightly early. |
-| `nightly`          | openpilot-nightly.comma.ai             | This is the bleeding edge development branch. Do not expect this to be stable.      |
-| `nightly-dev`      | installer.comma.ai/commaai/nightly-dev | Same as nightly, but includes experimental development features for some cars.      |
-| `secretgoodopenpilot` | installer.comma.ai/commaai/secretgoodopenpilot | This is a preview branch from the autonomy team where new driving models get merged earlier than master. |
+### Prerequisites
 
-To start developing openpilot
-------
+Before you begin, ensure you have the following:
 
-openpilot is developed by [comma](https://comma.ai/) and by users like you. We welcome both pull requests and issues on [GitHub](http://github.com/commaai/openpilot).
+*   **Supported Operating System:**
+    *   Ubuntu 20.04 or later (22.04/24.04 LTS recommended).
+    *   macOS.
+*   **Git:** For version control (LFS is also used).
+*   **Python:** Version >=3.11, <3.13 (defined in `pyproject.toml`).
+*   **C++ Compiler:** A modern C++ compiler (e.g., Clang, GCC). Clang is specified in `SConstruct`.
+*   **SCons:** The build system used by openpilot.
+*   **uv:** Python packaging tool, used for dependency management (`uv sync --frozen --all-extras`).
+*   **OS-Specific Dependencies:** Various libraries for UI (Qt5), multimedia (ffmpeg), system tools, etc. See `tools/install_ubuntu_dependencies.sh` for Ubuntu and `tools/mac_setup.sh` for macOS.
 
-* Join the [community Discord](https://discord.comma.ai)
-* Check out [the contributing docs](docs/CONTRIBUTING.md)
-* Check out the [openpilot tools](tools/)
-* Code documentation lives at https://docs.comma.ai
-* Information about running openpilot lives on the [community wiki](https://github.com/commaai/openpilot/wiki)
+### Installation
 
-Want to get paid to work on openpilot? [comma is hiring](https://comma.ai/jobs#open-positions) and offers lots of [bounties](https://comma.ai/bounties) for external contributors.
+1.  **Clone the Repository:**
+    ```bash
+    git clone https://github.com/commaai/openpilot.git
+    cd openpilot
+    ```
 
-Safety and Testing
-----
+2.  **Initialize Submodules & LFS:**
+    openpilot uses Git submodules and LFS.
+    ```bash
+    git submodule update --init --recursive
+    git lfs pull
+    ```
 
-* openpilot observes [ISO26262](https://en.wikipedia.org/wiki/ISO_26262) guidelines, see [SAFETY.md](docs/SAFETY.md) for more details.
-* openpilot has software-in-the-loop [tests](.github/workflows/selfdrive_tests.yaml) that run on every commit.
-* The code enforcing the safety model lives in panda and is written in C, see [code rigor](https://github.com/commaai/panda#code-rigor) for more details.
-* panda has software-in-the-loop [safety tests](https://github.com/commaai/panda/tree/master/tests/safety).
-* Internally, we have a hardware-in-the-loop Jenkins test suite that builds and unit tests the various processes.
-* panda has additional hardware-in-the-loop [tests](https://github.com/commaai/panda/blob/master/Jenkinsfile).
-* We run the latest openpilot in a testing closet containing 10 comma devices continuously replaying routes.
+3.  **Install Dependencies:**
 
-<details>
-<summary>MIT Licensed</summary>
+    *   **For Ubuntu:**
+        ```bash
+        ./tools/install_ubuntu_dependencies.sh
+        ./tools/install_python_dependencies.sh
+        ```
+        *The first script installs system-level packages. The second script sets up `uv` (if not present) and installs Python packages into a virtual environment (`.venv`) using `uv sync --frozen --all-extras` based on `pyproject.toml` and `uv.lock`.*
 
-openpilot is released under the MIT license. Some parts of the software are released under other licenses as specified.
+    *   **For macOS:**
+        ```bash
+        ./tools/mac_setup.sh
+        ```
+        *This script uses Homebrew to install system-level packages and then calls `tools/install_python_dependencies.sh` for Python packages.*
 
-Any user of this software shall indemnify and hold harmless Comma.ai, Inc. and its directors, officers, employees, agents, stockholders, affiliates, subcontractors and customers from and against all allegations, claims, actions, suits, demands, damages, liabilities, obligations, losses, settlements, judgments, costs and expenses (including without limitation attorneys’ fees and costs) which arise out of, relate to or result from any use of this software by user.
+    *   **Activate Virtual Environment:**
+        After running the Python dependency installation, activate the virtual environment:
+        ```bash
+        source .venv/bin/activate
+        ```
 
-**THIS IS ALPHA QUALITY SOFTWARE FOR RESEARCH PURPOSES ONLY. THIS IS NOT A PRODUCT.
-YOU ARE RESPONSIBLE FOR COMPLYING WITH LOCAL LAWS AND REGULATIONS.
-NO WARRANTY EXPRESSED OR IMPLIED.**
-</details>
+### Development Environment Setup
 
-<details>
-<summary>User Data and comma Account</summary>
+*   **Using a PC/Laptop:**
+    *   Follow the installation steps above.
+    *   Ensure your system is set up for C++ and Python development.
+    *   [VS Code](https://code.visualstudio.com/) is a popular choice, and the repository includes a `.vscode/` configuration.
+*   **Developing for a comma device:**
+    *   While much development can be done on a PC (especially with simulation), testing on actual hardware is crucial for many features.
+    *   Refer to the official openpilot documentation and community resources for device-specific setup if you intend to deploy directly to a comma 3/3X.
 
-By default, openpilot uploads the driving data to our servers. You can also access your data through [comma connect](https://connect.comma.ai/). We use your data to train better models and improve openpilot for everyone.
+## Running the Application
 
-openpilot is open source software: the user is free to disable data collection if they wish to do so.
+### On a comma device
 
-openpilot logs the road-facing cameras, CAN, GPS, IMU, magnetometer, thermal sensors, crashes, and operating system logs.
-The driver-facing camera and microphone are only logged if you explicitly opt-in in settings.
+For running openpilot on a comma 3/3X:
+1.  Follow the [official installation instructions from comma.ai](https://comma.ai/setup).
+2.  To use a custom build (e.g., from your development branch), you typically need to build and transfer it to the device. The `release/` directory scripts, particularly `release/build_release.sh` (which calls `release/pack.py`), are used for creating deployable builds.
+    *Further details on deploying custom builds to devices will be added here or in specific Wiki sections once the process is fully documented.*
 
-By using openpilot, you agree to [our Privacy Policy](https://comma.ai/privacy). You understand that use of this software or its related services will generate certain types of user data, which may be logged and stored at the sole discretion of comma. By accepting this agreement, you grant an irrevocable, perpetual, worldwide right to comma for the use of this data.
-</details>
+### In Simulation
+
+openpilot can be run in a simulator, which is highly beneficial for development and testing without needing a car or comma hardware.
+*   **Setup and Run Simulation:**
+    The `tools/sim/launch_openpilot.sh` script configures and starts openpilot in simulation mode.
+    Make sure your virtual environment is active (`source .venv/bin/activate`).
+    ```bash
+    # From the root of the openpilot directory
+    ./tools/sim/launch_openpilot.sh
+    ```
+    This script sets necessary environment variables (e.g., `SIMULATION=1`, `NOBOARD=1`) and then runs `system/manager/manager.py`.
+    *Refer to `tools/sim/README.md` if available, or the script itself for more details on simulation capabilities and requirements.*
+
+## Running Tests
+
+openpilot has an extensive suite of tests, combining Python and C++ tests, primarily run using `pytest`.
+Ensure your Python virtual environment is active (`source .venv/bin/activate`).
+
+*   **General Testing:**
+    From the root directory:
+    ```bash
+    # Run all tests (Python and C++ discovered by pytest-cpp)
+    pytest
+
+    # Run with parallel execution (similar to CI)
+    pytest -n logical # "logical" will use a sensible number of workers
+
+    # Run specific tests by path or name
+    pytest selfdrive/controls/tests/test_longcontrol.py
+    pytest selfdrive/locationd/test/test_locationd_scenarios.py::test_scenario_a
+    ```
+    *The `pyproject.toml` file (under `tool.pytest.ini_options`) configures `pytest` to discover C++ tests (`test_*` files) using `pytest-cpp` and `selfdrive/test/cpp_harness.py`.*
+
+*   **Specific Test Suites (examples):**
+    *   **Process Replay:** `pytest selfdrive/test/process_replay/test_processes.py`
+    *   **Car Models:** `pytest selfdrive/car/tests/test_models.py`
+    *   **UI Tests:** See `selfdrive/ui/tests/`. For example, `pytest selfdrive/ui/tests/test_translations.py`.
+
+*   **Coverage:**
+    To generate a coverage report (as done in CI):
+    ```bash
+    pytest --cov --cov-report=xml --cov-append
+    # View HTML report: coverage html
+    ```
+
+## Building openpilot
+
+openpilot is primarily built using SCons. Ensure your Python virtual environment is active (`source .venv/bin/activate`).
+
+1.  **Standard Development Build:**
+    To build all targets. SCons will typically use about half your CPU cores by default.
+    ```bash
+    # From the root directory
+    scons
+    # Or specify job count, e.g., using all available cores:
+    scons -j$(nproc)
+    ```
+
+2.  **Specific Targets:**
+    You can build specific parts of the project:
+    ```bash
+    scons selfdrive/modeld/modeld
+    scons system/camerad/camerad # Example, actual target might differ or be part of a larger one
+    ```
+
+3.  **Clean Build:**
+    To clean build artifacts:
+    ```bash
+    scons -c
+    ```
+
+4.  **Release Builds:**
+    For creating packages suitable for deployment on a device, use scripts in the `release/` directory:
+    ```bash
+    ./release/build_devel.sh  # For a development/testing build
+    ./release/build_release.sh # For a full release build
+    ```
+    These scripts often involve SCons and additional steps like packaging.
+
+## Deployment
+
+Deployment typically refers to installing openpilot on a comma device.
+*   **Official Releases:** Users install official releases via URLs like `openpilot.comma.ai` during the device setup.
+*   **Custom Builds / Development Builds:**
+    1.  Build openpilot using the appropriate release scripts (e.g., `./release/build_devel.sh`). This usually creates an update package.
+    2.  Transfer the package to the comma device. This might involve SSH, USB, or a custom update mechanism. Consult the openpilot documentation and community discussions for methods.
+    3.  Install the update on the device.
+    *This section will be significantly expanded in the Wiki documentation with detailed procedures.*
+
+## High-Level Architecture
+
+openpilot's architecture is modular, consisting of several key systems and processes that communicate with each other, primarily using the `cereal` messaging library.
+
+*   **Core Components:**
+    *   **`selfdrive`**: The primary software for autonomous driving capabilities.
+        *   **`controls`**: Manages vehicle control (steering, acceleration, braking) through `controlsd`, `plannerd`, and `radard`.
+        *   **`modeld`**: Runs machine learning models for perception (e.g., path planning, object detection).
+        *   **`locationd`**: Handles localization and sensor fusion (GPS, IMU).
+        *   **`camerad`**: Manages camera inputs (on device).
+        *   **`ui`**: Provides the user interface on the device.
+    *   **`panda`**: Firmware for the Panda hardware interface, which connects to the car's CAN bus. It enforces safety rules. (Submodule: `panda/`)
+    *   **`opendbc`**: A repository of DBC files (CAN database files) for various car models, used to decode and encode CAN messages. (Submodule: `opendbc/`)
+    *   **`cereal`**: The messaging framework (using Cap'n Proto) used for inter-process communication.
+    *   **`system`**: Low-level services for logging (`loggerd`, `logcatd`), hardware management (`hardwared`), process management (`manager`), etc.
+    *   **`common`**: Shared utility code, libraries, and data structures.
+    *   **`tools`**: Various utilities for development, simulation, data analysis, etc.
+
+*   **Data Flow (Simplified):**
+    1.  Sensors (cameras, GPS, IMU, CAN via Panda) provide data.
+    2.  Processes like `camerad` (on device), `sensord`, `locationd`, and `pandad` (interfacing with Panda hardware/firmware) acquire and publish this data using `cereal`.
+    3.  `modeld` processes vision data and other inputs to make driving predictions (e.g., path, lead vehicles).
+    4.  `plannerd` uses model outputs, vehicle state, and other inputs (like desired cruise speed) to plan trajectories.
+    5.  `controlsd` translates planned trajectories into vehicle commands (steering angle/torque, acceleration/braking) and sends them to the car's actuators via the Panda interface.
+    6.  The `ui` process displays relevant information and status to the driver on the comma device.
+    7.  `loggerd` logs data from various processes for debugging, replay, and training.
+
+*(This is a very high-level overview. Detailed architecture diagrams and component descriptions will be part of the Wiki documentation.)*
+
+## Contributing
+
+We welcome contributions to openpilot! Please see our detailed [Contribution Guidelines](docs/CONTRIBUTING.md) and the project's Code of Conduct (link to be added or file created).
+
+Key points:
+*   Priorities: Safety, stability, quality, features (in that order).
+*   Check existing issues and discussions before starting work.
+*   Follow coding style and submit well-tested pull requests.
+*   Join the [openpilot community Discord](https://discord.comma.ai) for discussions with other developers and users.
+
+## License
+
+openpilot is released under the MIT License. See the [LICENSE](LICENSE) file for more details. Some components may be under different licenses as specified within their respective directories.
