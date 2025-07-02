@@ -1,5 +1,7 @@
+from typing import Any, Dict
+
 # remove all keys that end in DEPRECATED
-def strip_deprecated_keys(d):
+def strip_deprecated_keys(d: Dict[str, Any]) -> Dict[str, Any]:
   for k in list(d.keys()):
     if isinstance(k, str):
       if k.endswith('DEPRECATED'):
