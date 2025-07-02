@@ -4,26 +4,27 @@ import os
 import signal
 import sys
 import traceback
+from typing import List, Tuple, Optional, Any # Added for type hinting
 
-from cereal import log
+from cereal import log, car
 import cereal.messaging as messaging
 import openpilot.system.sentry as sentry
 from openpilot.common.params import Params, ParamKeyType
 from openpilot.common.text_window import TextWindow
 from openpilot.system.hardware import HARDWARE
 from openpilot.system.manager.helpers import unblock_stdout, write_onroad_params, save_bootlog
-from openpilot.system.manager.process import ensure_running
+from openpilot.system.manager.process import ensure_running, ManagerProcess
 from openpilot.system.manager.process_config import managed_processes
 from openpilot.system.athena.registration import register, UNREGISTERED_DONGLE_ID
 from openpilot.common.swaglog import cloudlog, add_file_handler
-from openpilot.system.version import get_build_metadata, terms_version, training_version
+from openpilot.system.version import get_build_metadata, terms_version, training_version, BuildMetadata
 from openpilot.system.hardware.hw import Paths
 
 
 def manager_init() -> None:
   save_bootlog()
 
-  build_metadata = get_build_metadata()
+  build_metadata: BuildMetadata = get_build_metadata()
 
   params = Params()
   params.clear_all(ParamKeyType.CLEAR_ON_MANAGER_START)
@@ -32,7 +33,7 @@ def manager_init() -> None:
   if build_metadata.release_channel:
     params.clear_all(ParamKeyType.DEVELOPMENT_ONLY)
 
-  default_params: list[tuple[str, str | bytes]] = [
+  default_params: List[Tuple[str, str | bytes]] = [
     ("CompletedTrainingVersion", "0"),
     ("DisengageOnAccelerator", "0"),
     ("GsmMetered", "1"),
@@ -46,6 +47,8 @@ def manager_init() -> None:
     params.put_bool("RecordFront", True)
 
   # set unset params
+  k: str
+  v: str | bytes
   for k, v in default_params:
     if params.get(k) is None:
       params.put(k, v)
@@ -59,7 +62,7 @@ def manager_init() -> None:
     print(f"WARNING: failed to make {Paths.shm_path()}")
 
   # set params
-  serial = HARDWARE.get_serial()
+  serial: str = HARDWARE.get_serial()
   params.put("Version", build_metadata.openpilot.version)
   params.put("TermsVersion", terms_version)
   params.put("TrainingVersion", training_version)
@@ -72,7 +75,8 @@ def manager_init() -> None:
   params.put("HardwareSerial", serial)
 
   # set dongle id
-  reg_res = register(show_spinner=True)
+  reg_res: Optional[str] = register(show_spinner=True)
+  dongle_id: str
   if reg_res:
     dongle_id = reg_res
   else:
@@ -96,12 +100,14 @@ def manager_init() -> None:
                        device=HARDWARE.get_device_type())
 
   # preimport all processes
+  p: ManagerProcess
   for p in managed_processes.values():
     p.prepare()
 
 
 def manager_cleanup() -> None:
   # send signals to kill all procs
+  p: ManagerProcess
   for p in managed_processes.values():
     p.stop(block=False)
 
@@ -119,7 +125,7 @@ def manager_thread() -> None:
 
   params = Params()
 
-  ignore: list[str] = []
+  ignore: List[str] = []
   if params.get("DongleId", encoding='utf8') in (None, UNREGISTERED_DONGLE_ID):
     ignore += ["manage_athenad", "uploader"]
   if os.getenv("NOBOARD") is not None:
@@ -129,15 +135,20 @@ def manager_thread() -> None:
   sm = messaging.SubMaster(['deviceState', 'carParams'], poll='deviceState')
   pm = messaging.PubMaster(['managerState'])
 
-  write_onroad_params(False, params)
-  ensure_running(managed_processes.values(), False, params=params, CP=sm['carParams'], not_run=ignore)
+  # Ensure carParams is valid before using it
+  car_params_reader: Optional[car.CarParams.Reader] = None
+  if sm.valid['carParams']:
+    car_params_reader = sm['carParams']
 
-  started_prev = False
+  write_onroad_params(False, params)
+  ensure_running(managed_processes.values(), False, params=params, CP=car_params_reader, not_run=ignore)
+
+  started_prev: bool = False
 
   while True:
     sm.update(1000)
 
-    started = sm['deviceState'].started
+    started: bool = sm['deviceState'].started
 
     if started and not started_prev:
       params.clear_all(ParamKeyType.CLEAR_ON_ONROAD_TRANSITION)
@@ -150,10 +161,17 @@ def manager_thread() -> None:
 
     started_prev = started
 
-    ensure_running(managed_processes.values(), started, params=params, CP=sm['carParams'], not_run=ignore)
+    # Ensure carParams is valid before using it in ensure_running
+    if sm.updated['carParams'] and sm.valid['carParams']:
+        car_params_reader = sm['carParams']
+    elif not sm.valid['carParams']: # If carParams becomes invalid, set to None
+        car_params_reader = None
 
-    running = ' '.join("{}{}\u001b[0m".format("\u001b[32m" if p.proc.is_alive() else "\u001b[31m", p.name)
-                       for p in managed_processes.values() if p.proc)
+
+    ensure_running(managed_processes.values(), started, params=params, CP=car_params_reader, not_run=ignore)
+
+    running: str = ' '.join("{}{}\u001b[0m".format("\u001b[32m" if p.proc and p.proc.is_alive() else "\u001b[31m", p.name)
+                             for p in managed_processes.values() if p.proc is not None) # Added p.proc is not None check
     print(running)
     cloudlog.debug(running)
 
@@ -163,12 +181,13 @@ def manager_thread() -> None:
     pm.send('managerState', msg)
 
     # Exit main loop when uninstall/shutdown/reboot is needed
-    shutdown = False
-    for param in ("DoUninstall", "DoShutdown", "DoReboot"):
-      if params.get_bool(param):
+    shutdown: bool = False
+    param_check: str
+    for param_check in ("DoUninstall", "DoShutdown", "DoReboot"):
+      if params.get_bool(param_check):
         shutdown = True
-        params.put("LastManagerExitReason", f"{param} {datetime.datetime.now()}")
-        cloudlog.warning(f"Shutting down manager - {param} set")
+        params.put("LastManagerExitReason", f"{param_check} {datetime.datetime.now()}")
+        cloudlog.warning(f"Shutting down manager - {param_check} set")
 
     if shutdown:
       break
@@ -219,7 +238,7 @@ if __name__ == "__main__":
       pass
 
     # Show last 3 lines of traceback
-    error = traceback.format_exc(-3)
+    error: str = traceback.format_exc(-3)
     error = "Manager failed to start\n\n" + error
     with TextWindow(error) as t:
       t.wait_for_exit()

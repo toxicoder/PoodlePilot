@@ -4,19 +4,20 @@ from openpilot.common.realtime import DT_CTRL
 from openpilot.selfdrive.controls.lib.drive_helpers import CONTROL_N
 from openpilot.common.pid import PIDController
 from openpilot.selfdrive.modeld.constants import ModelConstants
+from typing import Tuple, List
 
-CONTROL_N_T_IDX = ModelConstants.T_IDXS[:CONTROL_N]
+CONTROL_N_T_IDX: np.ndarray = np.array(ModelConstants.T_IDXS[:CONTROL_N])
 
-LongCtrlState = car.CarControl.Actuators.LongControlState
+LongCtrlState: car.CarControl.Actuators.LongControlState = car.CarControl.Actuators.LongControlState
 
 
-def long_control_state_trans(CP, active, long_control_state, v_ego,
-                             should_stop, brake_pressed, cruise_standstill):
-  stopping_condition = should_stop
-  starting_condition = (not should_stop and
-                        not cruise_standstill and
-                        not brake_pressed)
-  started_condition = v_ego > CP.vEgoStarting
+def long_control_state_trans(CP: car.CarParams.Reader, active: bool, long_control_state: car.CarControl.Actuators.LongControlState, v_ego: float,
+                             should_stop: bool, brake_pressed: bool, cruise_standstill: bool) -> car.CarControl.Actuators.LongControlState:
+  stopping_condition: bool = should_stop
+  starting_condition: bool = (not should_stop and
+                              not cruise_standstill and
+                              not brake_pressed)
+  started_condition: bool = v_ego > CP.vEgoStarting
 
   if not active:
     long_control_state = LongCtrlState.off
@@ -45,7 +46,12 @@ def long_control_state_trans(CP, active, long_control_state, v_ego,
   return long_control_state
 
 class LongControl:
-  def __init__(self, CP):
+  CP: car.CarParams.Reader
+  long_control_state: car.CarControl.Actuators.LongControlState
+  pid: PIDController
+  last_output_accel: float
+
+  def __init__(self, CP: car.CarParams.Reader) -> None:
     self.CP = CP
     self.long_control_state = LongCtrlState.off
     self.pid = PIDController((CP.longitudinalTuning.kpBP, CP.longitudinalTuning.kpV),
@@ -53,10 +59,10 @@ class LongControl:
                              k_f=CP.longitudinalTuning.kf, rate=1 / DT_CTRL)
     self.last_output_accel = 0.0
 
-  def reset(self):
+  def reset(self) -> None:
     self.pid.reset()
 
-  def update(self, active, CS, a_target, should_stop, accel_limits):
+  def update(self, active: bool, CS: car.CarState.Reader, a_target: float, should_stop: bool, accel_limits: List[float]) -> float:
     """Update longitudinal control. This updates the state machine and runs a PID loop"""
     self.pid.neg_limit = accel_limits[0]
     self.pid.pos_limit = accel_limits[1]
@@ -64,6 +70,7 @@ class LongControl:
     self.long_control_state = long_control_state_trans(self.CP, active, self.long_control_state, CS.vEgo,
                                                        should_stop, CS.brakePressed,
                                                        CS.cruiseState.standstill)
+    output_accel: float
     if self.long_control_state == LongCtrlState.off:
       self.reset()
       output_accel = 0.
@@ -80,7 +87,7 @@ class LongControl:
       self.reset()
 
     else:  # LongCtrlState.pid
-      error = a_target - CS.aEgo
+      error: float = a_target - CS.aEgo
       output_accel = self.pid.update(error, speed=CS.vEgo,
                                      feedforward=a_target)
 
