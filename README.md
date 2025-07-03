@@ -1,11 +1,8 @@
 # PoodlePilot
 
-[![openpilot tests](https://github.com/commaai/openpilot/actions/workflows/selfdrive_tests.yaml/badge.svg)](https://github.com/commaai/openpilot/actions/workflows/selfdrive_tests.yaml)
-[![codecov](https://codecov.io/gh/commaai/openpilot/branch/master/graph/badge.svg)](https://codecov.io/gh/commaai/openpilot)
+![Poodle Pilot Logo](https://via.placeholder.com/300x100.jpg?text=Poodle+Pilot+Logo+V1)
+
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-[![X Follow](https://img.shields.io/twitter/follow/comma_ai)](https://x.com/comma_ai)
-[![Discord](https://img.shields.io/discord/469524606043160576)](https://discord.comma.ai)
-[![Version](https://img.shields.io/github/v/release/commaai/openpilot)](https://github.com/commaai/openpilot/releases/latest)
 <!-- Add other relevant badges here if available, e.g., for specific sub-components or documentation status -->
 <!-- Note: Badges for tests, codecov, and version currently point to the original openpilot repository. These should be updated if PoodlePilot establishes its own CI and release cycle. -->
 
