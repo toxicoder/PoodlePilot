@@ -193,7 +193,78 @@ Deployment typically refers to installing PoodlePilot on a comma device.
 
 PoodlePilot's architecture (derived from OpenPilot) is modular, consisting of several key systems and processes that communicate with each other, primarily using the `cereal` messaging library.
 
+```mermaid
+graph TD
+    subgraph "User Interface"
+        UI_Process["ui"]
+    end
+
+    subgraph "Vehicle Interface"
+        Panda["panda"]
+        Opendbc["opendbc"]
+    end
+
+    subgraph "Core System"
+        Controls["controls"]
+        ModelD["modeld"]
+        LocationD["locationd"]
+        CameraD["camerad"]
+        SensorD["sensord"]
+    end
+
+    subgraph "Supporting Systems"
+        Cereal["cereal (messaging)"]
+        SystemServices["system (logging, etc.)"]
+        Common["common (utilities)"]
+        Tools["tools (dev, simulation)"]
+    end
+
+    UI_Process --> Controls
+    Controls --> Panda
+    Panda --> Opendbc
+
+    ModelD --> Controls
+    LocationD --> Controls
+    CameraD --> ModelD
+    SensorD --> LocationD
+
+    Cereal -- Connects --> CoreSystem
+    SystemServices -- Supports --> CoreSystem
+    Common -- Used by --> CoreSystem
+    Tools -- Interact with --> CoreSystem
+```
+
 *   **Core Components (inherited from OpenPilot):**
+
+    ```mermaid
+    graph TD
+        subgraph "Self-Driving Logic"
+            selfdrive["selfdrive"]
+        end
+
+        subgraph "Vehicle & Communication Interface"
+            panda["panda (firmware)"]
+            opendbc["opendbc (CAN definitions)"]
+            cereal["cereal (messaging)"]
+        end
+
+        subgraph "System & Utilities"
+            system["system (low-level services)"]
+            common["common (shared code)"]
+            tools["tools (development utilities)"]
+        end
+
+        selfdrive --> panda
+        selfdrive --> opendbc
+        selfdrive -- Uses --> cereal
+
+        system -- Supports --> selfdrive
+        common -- Supports --> selfdrive
+        tools -- Used for --> selfdrive
+
+        panda --> opendbc
+    ```
+
     *   **`selfdrive`**: The primary software for autonomous driving capabilities.
         *   **`controls`**: Manages vehicle control (steering, acceleration, braking) through `controlsd`, `plannerd`, and `radard`.
         *   **`modeld`**: Runs machine learning models for perception (e.g., path planning, object detection).
@@ -208,6 +279,56 @@ PoodlePilot's architecture (derived from OpenPilot) is modular, consisting of se
     *   **`tools`**: Various utilities for development, simulation, data analysis, etc.
 
 *   **Data Flow (Simplified):**
+
+    ```mermaid
+    graph TD
+        subgraph "Sensors & Inputs"
+            Camera["Camera"]
+            GPS["GPS"]
+            IMU["IMU"]
+            CAN["CAN Bus (via Panda)"]
+        end
+
+        subgraph "Data Acquisition & Processing"
+            Camerad["camerad"]
+            Sensord["sensord"]
+            Locationd["locationd"]
+            Pandad["pandad"]
+        end
+
+        subgraph "Core Logic"
+            Modeld["modeld"]
+            Plannerd["plannerd"]
+            Controlsd["controlsd"]
+        end
+
+        subgraph "Outputs & Logging"
+            UI["ui"]
+            Loggerd["loggerd"]
+            VehicleActuators["Vehicle Actuators (via Panda)"]
+        end
+
+        Camera --> Camerad
+        GPS & IMU --> Sensord
+        Sensord --> Locationd
+        CAN --> Pandad
+
+        Camerad --> Modeld
+        Locationd --> Modeld
+        Pandad --> Modeld
+
+        Modeld --> Plannerd
+        Plannerd --> Controlsd
+        Controlsd --> VehicleActuators
+
+        Modeld --> UI
+        Plannerd --> UI
+        Controlsd --> UI
+
+        Camerad & Sensord & Locationd & Pandad & Modeld & Plannerd & Controlsd --> Loggerd
+    end
+    ```
+
     1.  Sensors (cameras, GPS, IMU, CAN via Panda) provide data.
     2.  Processes like `camerad` (on device), `sensord`, `locationd`, and `pandad` (interfacing with Panda hardware/firmware) acquire and publish this data using `cereal`.
     3.  `modeld` processes vision data and other inputs to make driving predictions (e.g., path, lead vehicles).
