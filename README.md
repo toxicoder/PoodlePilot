@@ -332,7 +332,6 @@ graph TD
     Modeld --> Loggerd
     Plannerd --> Loggerd
     Controlsd --> Loggerd
-    end
     ```
 
     1.  Sensors (cameras, GPS, IMU, CAN via Panda) provide data.
