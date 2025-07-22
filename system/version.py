@@ -5,15 +5,16 @@ import json
 import os
 import pathlib
 import subprocess
+from typing import Any
 
 from openpilot.common.basedir import BASEDIR
 from openpilot.common.swaglog import cloudlog
 from openpilot.common.git import get_commit, get_origin, get_branch, get_short_branch, get_commit_date
 
-RELEASE_BRANCHES = ['release3-staging', 'release3', 'nightly']
-TESTED_BRANCHES = RELEASE_BRANCHES + ['devel', 'devel-staging', 'nightly-dev']
+RELEASE_BRANCHES: list[str] = ['release3-staging', 'release3', 'nightly']
+TESTED_BRANCHES: list[str] = RELEASE_BRANCHES + ['devel', 'devel-staging', 'nightly-dev']
 
-BUILD_METADATA_FILENAME = "build.json"
+BUILD_METADATA_FILENAME: str = "build.json"
 
 training_version: bytes = b"0.2.0"
 terms_version: bytes = b"2"
@@ -21,7 +22,7 @@ terms_version: bytes = b"2"
 
 def get_version(path: str = BASEDIR) -> str:
   with open(os.path.join(path, "common", "version.h")) as _versionf:
-    version = _versionf.read().split('"')[1]
+    version: str = _versionf.read().split('"')[1]
   return version
 
 
@@ -37,12 +38,12 @@ def is_prebuilt(path: str = BASEDIR) -> bool:
 
 @cache
 def is_dirty(cwd: str = BASEDIR) -> bool:
-  origin = get_origin()
-  branch = get_branch()
+  origin: str | None = get_origin()
+  branch: str | None = get_branch()
   if not origin or not branch:
     return True
 
-  dirty = False
+  dirty: bool = False
   try:
     # Actually check dirty files
     if not is_prebuilt(cwd):
@@ -111,15 +112,16 @@ class BuildMetadata:
     return f"{self.openpilot.version} / {self.openpilot.git_commit[:6]} / {self.channel}"
 
 
-def build_metadata_from_dict(build_metadata: dict) -> BuildMetadata:
-  channel = build_metadata.get("channel", "unknown")
-  openpilot_metadata = build_metadata.get("openpilot", {})
-  version = openpilot_metadata.get("version", "unknown")
-  release_notes = openpilot_metadata.get("release_notes", "unknown")
-  git_commit = openpilot_metadata.get("git_commit", "unknown")
-  git_origin = openpilot_metadata.get("git_origin", "unknown")
-  git_commit_date = openpilot_metadata.get("git_commit_date", "unknown")
-  build_style = openpilot_metadata.get("build_style", "unknown")
+def build_metadata_from_dict(build_metadata: dict[str, Any]) -> BuildMetadata:
+  channel: str = build_metadata.get("channel", "unknown")
+  openpilot_metadata_dict: dict[str, Any] = build_metadata.get("openpilot", {})
+  version: str = openpilot_metadata_dict.get("version", "unknown")
+  release_notes: str = openpilot_metadata_dict.get("release_notes", "unknown")
+  git_commit: str = openpilot_metadata_dict.get("git_commit", "unknown")
+  git_origin: str = openpilot_metadata_dict.get("git_origin", "unknown")
+  git_commit_date: str = openpilot_metadata_dict.get("git_commit_date", "unknown")
+  build_style: str = openpilot_metadata_dict.get("build_style", "unknown")
+  # is_dirty is not stored in the build.json, defaults to False for prebuilt
   return BuildMetadata(channel,
             OpenpilotMetadata(
               version=version,
@@ -132,13 +134,13 @@ def build_metadata_from_dict(build_metadata: dict) -> BuildMetadata:
 
 
 def get_build_metadata(path: str = BASEDIR) -> BuildMetadata:
-  build_metadata_path = pathlib.Path(path) / BUILD_METADATA_FILENAME
+  build_metadata_path: pathlib.Path = pathlib.Path(path) / BUILD_METADATA_FILENAME
 
   if build_metadata_path.exists():
-    build_metadata = json.loads(build_metadata_path.read_text())
-    return build_metadata_from_dict(build_metadata)
+    build_metadata_dict: dict[str, Any] = json.loads(build_metadata_path.read_text())
+    return build_metadata_from_dict(build_metadata_dict)
 
-  git_folder = pathlib.Path(path) / ".git"
+  git_folder: pathlib.Path = pathlib.Path(path) / ".git"
 
   if git_folder.exists():
     return BuildMetadata(get_short_branch(path),

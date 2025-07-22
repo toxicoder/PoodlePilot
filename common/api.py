@@ -2,42 +2,49 @@ import jwt
 import os
 import requests
 from datetime import datetime, timedelta, UTC
+from typing import Any, Optional
+
 from openpilot.system.hardware.hw import Paths
 from openpilot.system.version import get_version
 
-API_HOST = os.getenv('API_HOST', 'https://api.commadotai.com')
+API_HOST: str = os.getenv('API_HOST', 'https://api.commadotai.com')
+
 
 class Api:
-  def __init__(self, dongle_id):
+  dongle_id: str
+  private_key: str
+
+  def __init__(self, dongle_id: str) -> None:
     self.dongle_id = dongle_id
-    with open(Paths.persist_root()+'/comma/id_rsa') as f:
+    # TODO: use Paths.id_rsa() once merged
+    with open(Paths.persist_root() + '/comma/id_rsa') as f:
       self.private_key = f.read()
 
-  def get(self, *args, **kwargs):
-    return self.request('GET', *args, **kwargs)
+  def get(self, endpoint: str, timeout: Optional[int] = None, access_token: Optional[str] = None, **params: Any) -> requests.Response:
+    return self.request('GET', endpoint, timeout=timeout, access_token=access_token, **params)
 
-  def post(self, *args, **kwargs):
-    return self.request('POST', *args, **kwargs)
+  def post(self, endpoint: str, timeout: Optional[int] = None, access_token: Optional[str] = None, **params: Any) -> requests.Response:
+    return self.request('POST', endpoint, timeout=timeout, access_token=access_token, **params)
 
-  def request(self, method, endpoint, timeout=None, access_token=None, **params):
+  def request(self, method: str, endpoint: str, timeout: Optional[int] = None, access_token: Optional[str] = None, **params: Any) -> requests.Response:
     return api_get(endpoint, method=method, timeout=timeout, access_token=access_token, **params)
 
-  def get_token(self, expiry_hours=1):
-    now = datetime.now(UTC).replace(tzinfo=None)
-    payload = {
+  def get_token(self, expiry_hours: int = 1) -> str:
+    now: datetime = datetime.now(UTC).replace(tzinfo=None)
+    payload: dict[str, Any] = {
       'identity': self.dongle_id,
       'nbf': now,
       'iat': now,
       'exp': now + timedelta(hours=expiry_hours)
     }
-    token = jwt.encode(payload, self.private_key, algorithm='RS256')
+    token: str | bytes = jwt.encode(payload, self.private_key, algorithm='RS256')
     if isinstance(token, bytes):
-      token = token.decode('utf8')
+      return token.decode('utf8')
     return token
 
 
-def api_get(endpoint, method='GET', timeout=None, access_token=None, **params):
-  headers = {}
+def api_get(endpoint: str, method: str = 'GET', timeout: Optional[int] = None, access_token: Optional[str] = None, **params: Any) -> requests.Response:
+  headers: dict[str, str] = {}
   if access_token is not None:
     headers['Authorization'] = "JWT " + access_token
 

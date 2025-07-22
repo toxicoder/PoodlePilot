@@ -1,19 +1,27 @@
 import math
+from typing import Any, Tuple # Added for type hinting
 
-from cereal import log
+from cereal import car, log
 from openpilot.selfdrive.controls.lib.latcontrol import LatControl
+from opendbc.car.vehicle_model import VehicleModel # Added for type hinting
 
-STEER_ANGLE_SATURATION_THRESHOLD = 2.5  # Degrees
+
+STEER_ANGLE_SATURATION_THRESHOLD: float = 2.5  # Degrees
 
 
 class LatControlAngle(LatControl):
-  def __init__(self, CP, CI):
+  use_steer_limited_by_controls: bool
+
+  def __init__(self, CP: car.CarParams.Reader, CI: Any) -> None: # CI type is CarInterfaceBase
     super().__init__(CP, CI)
     self.sat_check_min_speed = 5.
     self.use_steer_limited_by_controls = CP.brand == "tesla"
 
-  def update(self, active, CS, VM, params, steer_limited_by_controls, desired_curvature, calibrated_pose, curvature_limited):
-    angle_log = log.ControlsState.LateralAngleState.new_message()
+  def update(self, active: bool, CS: car.CarState.Reader, VM: VehicleModel, params: log.LiveParametersData.Reader,
+             steer_limited_by_controls: bool, desired_curvature: float, calibrated_pose: Any, # calibrated_pose is locationd.helpers.Pose
+             curvature_limited: bool) -> Tuple[float, float, log.ControlsState.LateralAngleState.Builder]:
+    angle_log: log.ControlsState.LateralAngleState.Builder = log.ControlsState.LateralAngleState.new_message()
+    angle_steers_des: float
 
     if not active:
       angle_log.active = False
@@ -23,6 +31,7 @@ class LatControlAngle(LatControl):
       angle_steers_des = math.degrees(VM.get_steer_from_curvature(-desired_curvature, CS.vEgo, params.roll))
       angle_steers_des += params.angleOffsetDeg
 
+    angle_control_saturated: bool
     if self.use_steer_limited_by_controls:
       # these cars' carcontrollers calculate max lateral accel and jerk, so we can rely on carOutput for saturation
       angle_control_saturated = steer_limited_by_controls
@@ -33,4 +42,4 @@ class LatControlAngle(LatControl):
     angle_log.saturated = bool(self._check_saturation(angle_control_saturated, CS, False, curvature_limited))
     angle_log.steeringAngleDeg = float(CS.steeringAngleDeg)
     angle_log.steeringAngleDesiredDeg = angle_steers_des
-    return 0, float(angle_steers_des), angle_log
+    return 0.0, float(angle_steers_des), angle_log

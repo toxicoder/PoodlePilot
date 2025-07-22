@@ -1,20 +1,85 @@
 Import('env', 'common', 'msgq')
 
 cereal_dir = Dir('.')
-gen_dir = Dir('gen')
+gen_cpp_dir = gen_dir = Dir('gen/cpp') # For Cap'n Proto C++
+gen_py_dir = Dir('gen/py')   # For Protobuf Python
 
-# Build cereal
-schema_files = ['log.capnp', 'car.capnp', 'legacy.capnp', 'custom.capnp']
-env.Command([f'gen/cpp/{s}.c++' for s in schema_files] + [f'gen/cpp/{s}.h' for s in schema_files],
-            schema_files,
-            f"capnpc --src-prefix={cereal_dir.path} $SOURCES -o c++:{gen_dir.path}/cpp/")
+# Ensure generation directories exist (SCons might handle this, but explicit is safer for initial setup)
+# However, SCons usually creates these based on target paths. Let's rely on SCons for now.
 
-cereal = env.Library('cereal', [f'gen/cpp/{s}.c++' for s in schema_files])
+# Build cereal (Cap'n Proto C++)
+capnp_schema_files = ['log.capnp', 'car.capnp', 'legacy.capnp', 'custom.capnp']
+capnp_cpp_targets = []
+for s in capnp_schema_files:
+    base_name = s.replace('.capnp', '')
+    capnp_cpp_targets.append(gen_cpp_dir.File(f'{base_name}.capnp.c++'))
+    capnp_cpp_targets.append(gen_cpp_dir.File(f'{base_name}.capnp.h'))
+
+env.Command(capnp_cpp_targets,
+            [cereal_dir.File(s) for s in capnp_schema_files],
+            f"capnpc --src-prefix={cereal_dir.path} $SOURCES -o c++:{gen_cpp_dir.path}")
+
+cereal_cpp_lib_sources = [t for t in capnp_cpp_targets if str(t).endswith('.c++')]
+cereal_cpp_lib = env.Library('cereal_cpp', cereal_cpp_lib_sources)
+
+
+# Build User Profile Protobuf (Python)
+proto_schema_files = ['user_profile.proto']
+user_profile_proto_py_target = gen_py_dir.File('user_profile_pb2.py')
+
+# The protoc command needs to know where to find the .proto file (proto_path)
+# and where to output the generated Python code (python_out).
+# $SOURCE refers to cereal_dir.File(proto_schema_files[0])
+# We need to make sure the output directory cereal/gen/py exists or protoc can create it.
+# SCons typically creates the directory for the target file.
+env.Command(user_profile_proto_py_target,
+            [cereal_dir.File(s) for s in proto_schema_files],
+            f"mkdir -p {gen_py_dir.path} && protoc --proto_path={cereal_dir.path} --python_out={gen_py_dir.path} $SOURCES")
+
+# It's also common to generate C++ bindings for protobufs if needed by C++ code.
+# For now, only Python bindings are generated for profile_manager.py.
+# If C++ code needs to read these profiles, a similar rule for C++ would be added:
+# user_profile_proto_cpp_h_target = gen_cpp_dir.File('user_profile.pb.h')
+# user_profile_proto_cpp_cc_target = gen_cpp_dir.File('user_profile.pb.cc')
+# env.Command([user_profile_proto_cpp_h_target, user_profile_proto_cpp_cc_target],
+#             [cereal_dir.File(s) for s in proto_schema_files],
+#             f"mkdir -p {gen_cpp_dir.path} && protoc --proto_path={cereal_dir.path} --cpp_out={gen_cpp_dir.path} $SOURCES")
+# cereal_proto_cpp_lib_sources = [user_profile_proto_cpp_cc_target]
+# cereal_proto_cpp_lib = env.Library('cereal_proto_cpp', cereal_proto_cpp_lib_sources)
+
+
+# Make Python generated files available (e.g. by ensuring gen/py is in sys.path or by copying)
+# For SCons, usually just ensuring they are built is enough if the import paths are set up correctly.
+# The import in profile_manager.py is `from cereal.user_profile_pb2 import ...`
+# This implies that the `PYTHONPATH` should include the parent of `cereal` directory,
+# and `cereal` should be a package.
+# To make `cereal.user_profile_pb2` work, `cereal/gen/py` would need an `__init__.py`
+# or `gen/py` itself needs to be in `PYTHONPATH` and then import would be `user_profile_pb2`.
+# Let's assume `cereal` is already a package source, so we want `user_profile_pb2.py` inside `cereal/` directory,
+# or `cereal/gen/py/` needs to be treated as part of the `cereal` package.
+# A common way is to output directly into the package structure.
+# Let's adjust python_out to place it such that `from cereal.user_profile_pb2` works.
+# This means `user_profile_pb2.py` should end up in `cereal/` or `PYTHONPATH` needs to include `gen/py`.
+
+# SCons usually works by building targets. If `cereal/user_profile_pb2.py` is a target,
+# and `common/profile_manager.py` depends on it, SCons would build it first.
+# The simplest way to make `from cereal.user_profile_pb2 import ...` work is if
+# `user_profile_pb2.py` is placed directly into the `cereal` directory.
+# Let's change the target and python_out for that.
+
+# Corrected target for placing _pb2.py directly in cereal/
+user_profile_pb2_py_in_cereal_dir = cereal_dir.File('user_profile_pb2.py')
+env.Command(user_profile_pb2_py_in_cereal_dir,
+            [cereal_dir.File(s) for s in proto_schema_files],
+            f"protoc --proto_path={cereal_dir.path} --python_out={cereal_dir.path} $SOURCES")
+
 
 # Build messaging
-services_h = env.Command(['services.h'], ['services.py'], 'python3 ' + cereal_dir.path + '/services.py > $TARGET')
+services_h = env.Command(cereal_dir.File('services.h'), [cereal_dir.File('services.py')], 'python3 ' + str(cereal_dir.File('services.py')) + ' > $TARGET')
 env.Program('messaging/bridge', ['messaging/bridge.cc', 'messaging/msgq_to_zmq.cc'], LIBS=[msgq, common, 'pthread'])
 
 socketmaster = env.Library('socketmaster', ['messaging/socketmaster.cc'])
 
-Export('cereal', 'socketmaster')
+# Export the C++ library and potentially the generated Python file as a build artifact if needed by other SCons scripts
+# For Python, usually being generated is enough for direct Python imports during runtime.
+Export('cereal_cpp_lib', 'socketmaster', 'user_profile_pb2_py_in_cereal_dir') # Export the generated python file node

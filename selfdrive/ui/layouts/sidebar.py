@@ -7,11 +7,14 @@ from openpilot.selfdrive.ui.ui_state import ui_state
 from openpilot.system.ui.lib.application import gui_app, FontWeight
 from openpilot.system.ui.lib.text_measure import measure_text_cached
 from openpilot.system.ui.lib.widget import Widget
+from openpilot.common.profile_manager import get_current_profile_name
 
 SIDEBAR_WIDTH = 300
 METRIC_HEIGHT = 126
 METRIC_WIDTH = 240
 METRIC_MARGIN = 30
+PROFILE_NAME_Y_OFFSET = 290 # Approximate Y position for profile name
+PROFILE_TEXT_SIZE = 30
 
 SETTINGS_BTN = rl.Rectangle(50, 35, 200, 117)
 HOME_BTN = rl.Rectangle(60, 860, 180, 180)
@@ -66,6 +69,7 @@ class Sidebar(Widget):
     super().__init__()
     self._net_type = NETWORK_TYPES.get(NetworkType.none)
     self._net_strength = 0
+    self._current_profile_name = "Default" # Initial value
 
     self._temp_status = MetricData("TEMP", "GOOD", Colors.GOOD)
     self._panda_status = MetricData("VEHICLE", "ONLINE", Colors.GOOD)
@@ -91,11 +95,20 @@ class Sidebar(Widget):
 
     self._draw_buttons(rect)
     self._draw_network_indicator(rect)
+    self._draw_profile_indicator(rect) # Added call
     self._draw_metrics(rect)
 
   def _update_state(self):
+    # Update profile name (call this frequently, or on a specific event if possible)
+    # For now, fetching it each time _update_state is called which is tied to deviceState updates.
+    # This might be too frequent if get_current_profile_name() involves file I/O via Params() initialization.
+    # Consider optimizing if performance issues arise. A cached approach in profile_manager might be better.
+    self._current_profile_name = get_current_profile_name()
+
     sm = ui_state.sm
     if not sm.updated['deviceState']:
+      # Still update profile name even if deviceState hasn't changed,
+      # as profile could change independently.
       return
 
     device_state = sm['deviceState']
