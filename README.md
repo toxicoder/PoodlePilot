@@ -325,7 +325,13 @@ graph TD
         Plannerd --> UI
         Controlsd --> UI
 
-        Camerad & Sensord & Locationd & Pandad & Modeld & Plannerd & Controlsd --> Loggerd
+    Camerad --> Loggerd
+    Sensord --> Loggerd
+    Locationd --> Loggerd
+    Pandad --> Loggerd
+    Modeld --> Loggerd
+    Plannerd --> Loggerd
+    Controlsd --> Loggerd
     end
     ```
 
