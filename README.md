@@ -1,6 +1,6 @@
 # PoodlePilot
 
-<img src="./poodle_pilot_logo_v2_web.jpg" alt="Poodle Pilot Logo" style="max-height: 100px; max-width: 100px;">
+<img src="./poodle_pilot_logo_v3_web.jpeg" alt="Poodle Pilot Logo" style="max-height: 100px; max-width: 100px;">
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 <!-- Add other relevant badges here if available, e.g., for specific sub-components or documentation status -->
