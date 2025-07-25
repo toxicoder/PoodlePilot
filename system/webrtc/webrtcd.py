@@ -11,7 +11,6 @@ from typing import Any, TYPE_CHECKING
 # aiortc and its dependencies have lots of internal warnings :(
 import warnings
 warnings.filterwarnings("ignore", category=DeprecationWarning)
-warnings.filterwarnings("ignore", category=RuntimeWarning) # TODO: remove this when google-crc32c publish a python3.12 wheel
 
 import capnp
 from aiohttp import web
@@ -131,9 +130,11 @@ class StreamSession:
 
     assert len(cameras) == config.n_expected_camera_tracks, "Incoming stream has misconfigured number of video tracks"
     for cam in cameras:
-      builder.add_video_stream(cam, LiveStreamVideoStreamTrack(cam) if not debug_mode else VideoStreamTrack())
+      track = LiveStreamVideoStreamTrack(cam) if not debug_mode else VideoStreamTrack()
+      builder.add_video_stream(cam, track)
     if config.expected_audio_track:
-      builder.add_audio_stream(AudioInputStreamTrack() if not debug_mode else AudioStreamTrack())
+      track = AudioInputStreamTrack() if not debug_mode else AudioStreamTrack()
+      builder.add_audio_stream(track)
     if config.incoming_audio_track:
       self.audio_output_cls = AudioOutputSpeaker if not debug_mode else MediaBlackhole
       builder.offer_to_receive_audio_stream()

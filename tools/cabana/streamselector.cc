@@ -10,7 +10,7 @@
 #include "tools/cabana/streams/replaystream.h"
 #include "tools/cabana/streams/socketcanstream.h"
 
-StreamSelector::StreamSelector(QWidget *parent) : QDialog(parent) {
+StreamSelector::StreamSelector(AbstractStream **stream, QWidget *parent) : QDialog(parent) {
   setWindowTitle(tr("Open stream"));
   QVBoxLayout *layout = new QVBoxLayout(this);
   tab = new QTabWidget(this);
@@ -33,17 +33,17 @@ StreamSelector::StreamSelector(QWidget *parent) : QDialog(parent) {
   btn_box = new QDialogButtonBox(QDialogButtonBox::Open | QDialogButtonBox::Cancel);
   layout->addWidget(btn_box);
 
-  addStreamWidget(new OpenReplayWidget, tr("&Replay"));
-  addStreamWidget(new OpenPandaWidget, tr("&Panda"));
+  addStreamWidget(ReplayStream::widget(stream));
+  addStreamWidget(PandaStream::widget(stream));
   if (SocketCanStream::available()) {
-    addStreamWidget(new OpenSocketCanWidget, tr("&SocketCAN"));
+    addStreamWidget(SocketCanStream::widget(stream));
   }
-  addStreamWidget(new OpenDeviceWidget, tr("&Device"));
+  addStreamWidget(DeviceStream::widget(stream));
 
   QObject::connect(btn_box, &QDialogButtonBox::rejected, this, &QDialog::reject);
   QObject::connect(btn_box, &QDialogButtonBox::accepted, [=]() {
     setEnabled(false);
-    if (stream_ = ((AbstractOpenStreamWidget *)tab->currentWidget())->open(); stream_) {
+    if (((AbstractOpenStreamWidget *)tab->currentWidget())->open()) {
       accept();
     }
     setEnabled(true);
@@ -57,8 +57,8 @@ StreamSelector::StreamSelector(QWidget *parent) : QDialog(parent) {
   });
 }
 
-void StreamSelector::addStreamWidget(AbstractOpenStreamWidget *w, const QString &title) {
-  tab->addTab(w, title);
+void StreamSelector::addStreamWidget(AbstractOpenStreamWidget *w) {
+  tab->addTab(w, w->title());
   auto open_btn = btn_box->button(QDialogButtonBox::Open);
   QObject::connect(w, &AbstractOpenStreamWidget::enableOpenButton, open_btn, &QPushButton::setEnabled);
 }

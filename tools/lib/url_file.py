@@ -16,7 +16,8 @@ CHUNK_SIZE = 1000 * K
 logging.getLogger("urllib3").setLevel(logging.WARNING)
 
 def hash_256(link: str) -> str:
-  return sha256((link.split("?")[0]).encode('utf-8')).hexdigest()
+  hsh = str(sha256((link.split("?")[0]).encode('utf-8')).hexdigest())
+  return hsh
 
 
 class URLFileException(Exception):
@@ -81,7 +82,7 @@ class URLFile:
 
     self._length = self.get_length_online()
     if not self._force_download and self._length != -1:
-      with atomic_write_in_dir(file_length_path, mode="w", overwrite=True) as file_length:
+      with atomic_write_in_dir(file_length_path, mode="w") as file_length:
         file_length.write(str(self._length))
     return self._length
 
@@ -104,7 +105,7 @@ class URLFile:
       #  If we don't have a file, download it
       if not os.path.exists(full_path):
         data = self.read_aux(ll=CHUNK_SIZE)
-        with atomic_write_in_dir(full_path, mode="wb", overwrite=True) as new_cached_file:
+        with atomic_write_in_dir(full_path, mode="wb") as new_cached_file:
           new_cached_file.write(data)
       else:
         with open(full_path, "rb") as cached_file:
@@ -131,13 +132,13 @@ class URLFile:
       download_range = True
 
     if self._debug:
-      t1 = time.monotonic()
+      t1 = time.time()
 
     response = self._request('GET', self._url, headers=headers)
     ret = response.data
 
     if self._debug:
-      t2 = time.monotonic()
+      t2 = time.time()
       if t2 - t1 > 0.1:
         print(f"get {self._url} {headers!r} {t2 - t1:.3f} slow")
 

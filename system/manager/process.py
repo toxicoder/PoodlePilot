@@ -16,8 +16,8 @@ import openpilot.system.sentry as sentry
 from openpilot.common.basedir import BASEDIR
 from openpilot.common.params import Params
 from openpilot.common.swaglog import cloudlog
-from openpilot.common.watchdog import WATCHDOG_FN
 
+WATCHDOG_FN = "/dev/shm/wd_"
 ENABLE_WATCHDOG = os.getenv("NO_WATCHDOG") is None
 
 
@@ -30,7 +30,7 @@ def launcher(proc: str, name: str) -> None:
     setproctitle(proc)
 
     # create new context since we forked
-    messaging.reset_context()
+    messaging.context = messaging.Context()
 
     # add daemon name tag to logs
     cloudlog.bind(daemon=name)
@@ -95,6 +95,7 @@ class ManagerProcess(ABC):
     try:
       fn = WATCHDOG_FN + str(self.proc.pid)
       with open(fn, "rb") as f:
+        # TODO: why can't pylint find struct.unpack?
         self.last_watchdog_time = struct.unpack('Q', f.read())[0]
     except Exception:
       pass
@@ -219,12 +220,8 @@ class PythonProcess(ManagerProcess):
     if self.proc is not None:
       return
 
-    # TODO: this is just a workaround for this tinygrad check:
-    # https://github.com/tinygrad/tinygrad/blob/ac9c96dae1656dc220ee4acc39cef4dd449aa850/tinygrad/device.py#L26
-    name = self.name if "modeld" not in self.name else "MainProcess"
-
     cloudlog.info(f"starting python {self.module}")
-    self.proc = Process(name=name, target=self.launcher, args=(self.module, self.name))
+    self.proc = Process(name=self.name, target=self.launcher, args=(self.module, self.name))
     self.proc.start()
     self.watchdog_seen = False
     self.shutting_down = False
@@ -241,7 +238,7 @@ class DaemonProcess(ManagerProcess):
     self.params = None
 
   @staticmethod
-  def should_run(started, params, CP):
+  def should_run(started, params, CP, classic_model, tinygrad_model, frogpilot_toggles):
     return True
 
   def prepare(self) -> None:
@@ -251,7 +248,7 @@ class DaemonProcess(ManagerProcess):
     if self.params is None:
       self.params = Params()
 
-    pid = self.params.get(self.param_name)
+    pid = self.params.get(self.param_name, encoding='utf-8')
     if pid is not None:
       try:
         os.kill(int(pid), 0)
@@ -277,13 +274,13 @@ class DaemonProcess(ManagerProcess):
 
 
 def ensure_running(procs: ValuesView[ManagerProcess], started: bool, params=None, CP: car.CarParams=None,
-                   not_run: list[str] | None=None) -> list[ManagerProcess]:
+                   not_run: list[str] | None=None, classic_model=False, tinygrad_model=False, frogpilot_toggles=None) -> list[ManagerProcess]:
   if not_run is None:
     not_run = []
 
   running = []
   for p in procs:
-    if p.enabled and p.name not in not_run and p.should_run(started, params, CP):
+    if p.enabled and p.name not in not_run and p.should_run(started, params, CP, classic_model, tinygrad_model, frogpilot_toggles):
       running.append(p)
     else:
       p.stop(block=False)

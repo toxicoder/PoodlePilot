@@ -1,12 +1,13 @@
 import math
-import numpy as np
 
 from cereal import log
-from opendbc.car import FRICTION_THRESHOLD, get_friction
-from opendbc.car.interfaces import LatControlInputs
-from opendbc.car.vehicle_model import ACCELERATION_DUE_TO_GRAVITY
+from openpilot.common.numpy_fast import interp
+from openpilot.selfdrive.car.interfaces import LatControlInputs
 from openpilot.selfdrive.controls.lib.latcontrol import LatControl
-from openpilot.common.pid import PIDController
+from openpilot.selfdrive.controls.lib.pid import PIDController
+from openpilot.selfdrive.controls.lib.vehicle_model import ACCELERATION_DUE_TO_GRAVITY
+
+from openpilot.frogpilot.controls.lib.neural_network_feedforward import LOW_SPEED_Y_NN, NeuralNetworkFeedforward
 
 # At higher speeds (25+mph) we can assume:
 # Lateral acceleration achieved by a specific car correlates to
@@ -26,26 +27,38 @@ LOW_SPEED_Y = [15, 13, 10, 5]
 class LatControlTorque(LatControl):
   def __init__(self, CP, CI):
     super().__init__(CP, CI)
-    self.torque_params = CP.lateralTuning.torque.as_builder()
+    self.torque_params = CP.lateralTuning.torque
     self.pid = PIDController(self.torque_params.kp, self.torque_params.ki,
                              k_f=self.torque_params.kf, pos_limit=self.steer_max, neg_limit=-self.steer_max)
     self.torque_from_lateral_accel = CI.torque_from_lateral_accel()
+    self.use_steering_angle = self.torque_params.useSteeringAngle
     self.steering_angle_deadzone_deg = self.torque_params.steeringAngleDeadzoneDeg
+
+    # FrogPilot variables
+    self.nnff = NeuralNetworkFeedforward(CP, CI, self)
+
+    self.nnff_loaded = self.nnff.lat_torque_nn_model != None
 
   def update_live_torque_params(self, latAccelFactor, latAccelOffset, friction):
     self.torque_params.latAccelFactor = latAccelFactor
     self.torque_params.latAccelOffset = latAccelOffset
     self.torque_params.friction = friction
 
-  def update(self, active, CS, VM, params, steer_limited_by_controls, desired_curvature, curvature_limited):
+  def update(self, active, CS, VM, params, steer_limited, desired_curvature, llk, model_data=None, frogpilot_toggles=None):
     pid_log = log.ControlsState.LateralTorqueState.new_message()
     if not active:
       output_torque = 0.0
       pid_log.active = False
     else:
-      actual_curvature = -VM.calc_curvature(math.radians(CS.steeringAngleDeg - params.angleOffsetDeg), CS.vEgo, params.roll)
+      actual_curvature_vm = -VM.calc_curvature(math.radians(CS.steeringAngleDeg - params.angleOffsetDeg), CS.vEgo, params.roll)
       roll_compensation = params.roll * ACCELERATION_DUE_TO_GRAVITY
-      curvature_deadzone = abs(VM.calc_curvature(math.radians(self.steering_angle_deadzone_deg), CS.vEgo, 0.0))
+      if self.use_steering_angle:
+        actual_curvature = actual_curvature_vm
+        curvature_deadzone = abs(VM.calc_curvature(math.radians(self.steering_angle_deadzone_deg), CS.vEgo, 0.0))
+      else:
+        actual_curvature_llk = llk.angularVelocityCalibrated.value[2] / CS.vEgo
+        actual_curvature = interp(CS.vEgo, [2.0, 5.0], [actual_curvature_vm, actual_curvature_llk])
+        curvature_deadzone = 0.0
       desired_lateral_accel = desired_curvature * CS.vEgo ** 2
 
       # desired rate is the desired rate of change in the setpoint, not the absolute desired curvature
@@ -53,34 +66,41 @@ class LatControlTorque(LatControl):
       actual_lateral_accel = actual_curvature * CS.vEgo ** 2
       lateral_accel_deadzone = curvature_deadzone * CS.vEgo ** 2
 
-      low_speed_factor = np.interp(CS.vEgo, LOW_SPEED_X, LOW_SPEED_Y)**2
+      low_speed_factor = interp(CS.vEgo, LOW_SPEED_X, LOW_SPEED_Y_NN if frogpilot_toggles.nnff else LOW_SPEED_Y)**2
       setpoint = desired_lateral_accel + low_speed_factor * desired_curvature
       measurement = actual_lateral_accel + low_speed_factor * actual_curvature
       gravity_adjusted_lateral_accel = desired_lateral_accel - roll_compensation
-      torque_from_setpoint = self.torque_from_lateral_accel(LatControlInputs(setpoint, roll_compensation, CS.vEgo, CS.aEgo), self.torque_params,
-                                                            gravity_adjusted=False)
-      torque_from_measurement = self.torque_from_lateral_accel(LatControlInputs(measurement, roll_compensation, CS.vEgo, CS.aEgo), self.torque_params,
-                                                               gravity_adjusted=False)
-      pid_log.error = float(torque_from_setpoint - torque_from_measurement)
-      ff = self.torque_from_lateral_accel(LatControlInputs(gravity_adjusted_lateral_accel, roll_compensation, CS.vEgo, CS.aEgo), self.torque_params,
-                                          gravity_adjusted=True)
-      ff += get_friction(desired_lateral_accel - actual_lateral_accel, lateral_accel_deadzone, FRICTION_THRESHOLD, self.torque_params)
+      if self.nnff_loaded and frogpilot_toggles.nnff or frogpilot_toggles.nnff_lite:
+        torque_from_setpoint, torque_from_measurement, pid_log, ff = self.nnff.compute_nnff(
+          CS, VM, actual_lateral_accel, desired_lateral_accel, gravity_adjusted_lateral_accel, lateral_accel_deadzone,
+          llk, measurement, model_data, params, pid_log, roll_compensation, setpoint, frogpilot_toggles
+        )
+      else:
+        torque_from_setpoint = self.torque_from_lateral_accel(LatControlInputs(setpoint, roll_compensation, CS.vEgo, CS.aEgo), self.torque_params,
+                                                              setpoint, lateral_accel_deadzone, friction_compensation=False, gravity_adjusted=False)
+        torque_from_measurement = self.torque_from_lateral_accel(LatControlInputs(measurement, roll_compensation, CS.vEgo, CS.aEgo), self.torque_params,
+                                                                 measurement, lateral_accel_deadzone, friction_compensation=False, gravity_adjusted=False)
+        pid_log.error = torque_from_setpoint - torque_from_measurement
+        ff = self.torque_from_lateral_accel(LatControlInputs(gravity_adjusted_lateral_accel, roll_compensation, CS.vEgo, CS.aEgo), self.torque_params,
+                                            desired_lateral_accel - actual_lateral_accel, lateral_accel_deadzone, friction_compensation=True,
+                                            gravity_adjusted=True)
 
-      freeze_integrator = steer_limited_by_controls or CS.steeringPressed or CS.vEgo < 5
+      freeze_integrator = steer_limited or CS.steeringPressed or CS.vEgo < 5
+      self.pid._k_p = frogpilot_toggles.steerKp
       output_torque = self.pid.update(pid_log.error,
                                       feedforward=ff,
                                       speed=CS.vEgo,
                                       freeze_integrator=freeze_integrator)
 
       pid_log.active = True
-      pid_log.p = float(self.pid.p)
-      pid_log.i = float(self.pid.i)
-      pid_log.d = float(self.pid.d)
-      pid_log.f = float(self.pid.f)
-      pid_log.output = float(-output_torque)
-      pid_log.actualLateralAccel = float(actual_lateral_accel)
-      pid_log.desiredLateralAccel = float(desired_lateral_accel)
-      pid_log.saturated = bool(self._check_saturation(self.steer_max - abs(output_torque) < 1e-3, CS, steer_limited_by_controls, curvature_limited))
+      pid_log.p = self.pid.p
+      pid_log.i = self.pid.i
+      pid_log.d = self.pid.d
+      pid_log.f = self.pid.f
+      pid_log.output = -output_torque
+      pid_log.actualLateralAccel = actual_lateral_accel
+      pid_log.desiredLateralAccel = desired_lateral_accel
+      pid_log.saturated = self._check_saturation(self.steer_max - abs(output_torque) < 1e-3, CS, steer_limited)
 
     # TODO left is positive in this convention
     return -output_torque, 0.0, pid_log

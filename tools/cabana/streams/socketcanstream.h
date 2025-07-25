@@ -18,6 +18,7 @@ class SocketCanStream : public LiveStream {
 public:
   SocketCanStream(QObject *parent, SocketCanStreamConfig config_ = {});
   ~SocketCanStream() { stop(); }
+  static AbstractOpenStreamWidget *widget(AbstractStream **stream);
   static bool available();
 
   inline QString routeName() const override {
@@ -36,8 +37,9 @@ class OpenSocketCanWidget : public AbstractOpenStreamWidget {
   Q_OBJECT
 
 public:
-  OpenSocketCanWidget(QWidget *parent = nullptr);
-  AbstractStream *open() override;
+  OpenSocketCanWidget(AbstractStream **stream);
+  bool open() override;
+  QString title() override { return tr("&SocketCAN"); }
 
 private:
   void refreshDevices();

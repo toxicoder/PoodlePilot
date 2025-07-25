@@ -5,49 +5,72 @@
 
 #include "selfdrive/ui/qt/util.h"
 
-void OnroadAlerts::updateState(const UIState &s) {
-  Alert a = getAlert(*(s.sm), s.scene.started_frame);
+void OnroadAlerts::updateState(const UIState &s, const FrogPilotUIState &fs) {
+  Alert a = getAlert(*(s.sm), s.scene.started_frame, fs.frogpilot_toggles);
   if (!alert.equal(a)) {
-    alert = a;
-    update();
+    if (alert.status == cereal::ControlsState::AlertStatus::NORMAL && fs.frogpilot_toggles.value("hide_alerts").toBool()) {
+      clear();
+    } else {
+      alert = a;
+
+      update();
+    }
   }
 }
 
 void OnroadAlerts::clear() {
+  alertHeight = 0;
+
   alert = {};
   update();
 }
 
-OnroadAlerts::Alert OnroadAlerts::getAlert(const SubMaster &sm, uint64_t started_frame) {
-  const cereal::SelfdriveState::Reader &ss = sm["selfdriveState"].getSelfdriveState();
-  const uint64_t selfdrive_frame = sm.rcv_frame("selfdriveState");
+OnroadAlerts::Alert OnroadAlerts::getAlert(const SubMaster &sm, uint64_t started_frame, QJsonObject &frogpilot_toggles) {
+  const cereal::ControlsState::Reader &cs = sm["controlsState"].getControlsState();
+  const uint64_t controls_frame = sm.rcv_frame("controlsState");
 
   Alert a = {};
-  if (selfdrive_frame >= started_frame) {  // Don't get old alert.
-    a = {ss.getAlertText1().cStr(), ss.getAlertText2().cStr(),
-         ss.getAlertType().cStr(), ss.getAlertSize(), ss.getAlertStatus()};
+  const QString crash_log_path = "/data/error_logs/error.txt";
+  if (QFile::exists(crash_log_path)) {
+    if (frogpilot_toggles.value("random_events").toBool()) {
+      a = {tr("openpilot crashed 💩"),
+           tr("Please post the \"Error Log\" in the FrogPilot Discord!"),
+           "openpilotCrashedRandomEvent",
+           cereal::ControlsState::AlertSize::MID,
+           cereal::ControlsState::AlertStatus::CRITICAL};
+    } else {
+      a = {tr("openpilot crashed"),
+           tr("Please post the \"Error Log\" in the FrogPilot Discord!"),
+           "openpilotCrashed",
+           cereal::ControlsState::AlertSize::MID,
+           cereal::ControlsState::AlertStatus::CRITICAL};
+    }
+    return a;
+  } else if (controls_frame >= started_frame) {  // Don't get old alert.
+    a = {cs.getAlertText1().cStr(), cs.getAlertText2().cStr(),
+         cs.getAlertType().cStr(), cs.getAlertSize(), cs.getAlertStatus()};
   }
 
-  if (!sm.updated("selfdriveState") && (sm.frame - started_frame) > 5 * UI_FREQ) {
-    const int SELFDRIVE_STATE_TIMEOUT = 5;
-    const int ss_missing = (nanos_since_boot() - sm.rcv_time("selfdriveState")) / 1e9;
+  if (!sm.updated("controlsState") && (sm.frame - started_frame) > 5 * UI_FREQ && !frogpilot_toggles.value("force_onroad").toBool()) {
+    const int CONTROLS_TIMEOUT = 5;
+    const int controls_missing = (nanos_since_boot() - sm.rcv_time("controlsState")) / 1e9;
 
-    // Handle selfdrive timeout
-    if (selfdrive_frame < started_frame) {
-      // car is started, but selfdriveState hasn't been seen at all
-      a = {tr("openpilot Unavailable"), tr("Waiting to start"),
-           "selfdriveWaiting", cereal::SelfdriveState::AlertSize::MID,
-           cereal::SelfdriveState::AlertStatus::NORMAL};
-    } else if (ss_missing > SELFDRIVE_STATE_TIMEOUT && !Hardware::PC()) {
-      // car is started, but selfdrive is lagging or died
-      if (ss.getEnabled() && (ss_missing - SELFDRIVE_STATE_TIMEOUT) < 10) {
-        a = {tr("TAKE CONTROL IMMEDIATELY"), tr("System Unresponsive"),
-             "selfdriveUnresponsive", cereal::SelfdriveState::AlertSize::FULL,
-             cereal::SelfdriveState::AlertStatus::CRITICAL};
+    // Handle controls timeout
+    if (controls_frame < started_frame) {
+      // car is started, but controlsState hasn't been seen at all
+      a = {tr("openpilot Unavailable"), tr("Waiting for controls to start"),
+           "controlsWaiting", cereal::ControlsState::AlertSize::MID,
+           cereal::ControlsState::AlertStatus::NORMAL};
+    } else if (controls_missing > CONTROLS_TIMEOUT && !Hardware::PC()) {
+      // car is started, but controls is lagging or died
+      if (cs.getEnabled() && (controls_missing - CONTROLS_TIMEOUT) < 10) {
+        a = {tr("TAKE CONTROL IMMEDIATELY"), tr("Controls Unresponsive"),
+             "controlsUnresponsive", cereal::ControlsState::AlertSize::FULL,
+             cereal::ControlsState::AlertStatus::CRITICAL};
       } else {
-        a = {tr("System Unresponsive"), tr("Reboot Device"),
-             "selfdriveUnresponsivePermanent", cereal::SelfdriveState::AlertSize::MID,
-             cereal::SelfdriveState::AlertStatus::NORMAL};
+        a = {tr("Controls Unresponsive"), tr("Reboot Device"),
+             "controlsUnresponsivePermanent", cereal::ControlsState::AlertSize::MID,
+             cereal::ControlsState::AlertStatus::NORMAL};
       }
     }
   }
@@ -55,19 +78,21 @@ OnroadAlerts::Alert OnroadAlerts::getAlert(const SubMaster &sm, uint64_t started
 }
 
 void OnroadAlerts::paintEvent(QPaintEvent *event) {
-  if (alert.size == cereal::SelfdriveState::AlertSize::NONE) {
+  if (alert.size == cereal::ControlsState::AlertSize::NONE) {
+    alertHeight = 0;
     return;
   }
-  static std::map<cereal::SelfdriveState::AlertSize, const int> alert_heights = {
-    {cereal::SelfdriveState::AlertSize::SMALL, 271},
-    {cereal::SelfdriveState::AlertSize::MID, 420},
-    {cereal::SelfdriveState::AlertSize::FULL, height()},
+  static std::map<cereal::ControlsState::AlertSize, const int> alert_heights = {
+    {cereal::ControlsState::AlertSize::SMALL, 271},
+    {cereal::ControlsState::AlertSize::MID, 420},
+    {cereal::ControlsState::AlertSize::FULL, height()},
   };
-  int h = alert_heights[alert.size];
+  alertHeight = alert_heights[alert.size];
+  int h = alertHeight;
 
   int margin = 40;
   int radius = 30;
-  if (alert.size == cereal::SelfdriveState::AlertSize::FULL) {
+  if (alert.size == cereal::ControlsState::AlertSize::FULL) {
     margin = 0;
     radius = 0;
   }
@@ -94,15 +119,15 @@ void OnroadAlerts::paintEvent(QPaintEvent *event) {
   const QPoint c = r.center();
   p.setPen(QColor(0xff, 0xff, 0xff));
   p.setRenderHint(QPainter::TextAntialiasing);
-  if (alert.size == cereal::SelfdriveState::AlertSize::SMALL) {
+  if (alert.size == cereal::ControlsState::AlertSize::SMALL) {
     p.setFont(InterFont(74, QFont::DemiBold));
     p.drawText(r, Qt::AlignCenter, alert.text1);
-  } else if (alert.size == cereal::SelfdriveState::AlertSize::MID) {
+  } else if (alert.size == cereal::ControlsState::AlertSize::MID) {
     p.setFont(InterFont(88, QFont::Bold));
     p.drawText(QRect(0, c.y() - 125, width(), 150), Qt::AlignHCenter | Qt::AlignTop, alert.text1);
     p.setFont(InterFont(66));
     p.drawText(QRect(0, c.y() + 21, width(), 90), Qt::AlignHCenter, alert.text2);
-  } else if (alert.size == cereal::SelfdriveState::AlertSize::FULL) {
+  } else if (alert.size == cereal::ControlsState::AlertSize::FULL) {
     bool l = alert.text1.length() > 15;
     p.setFont(InterFont(l ? 132 : 177, QFont::Bold));
     p.drawText(QRect(0, r.y() + (l ? 240 : 270), width(), 600), Qt::AlignHCenter | Qt::TextWordWrap, alert.text1);

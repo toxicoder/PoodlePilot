@@ -4,12 +4,14 @@ from collections import deque, defaultdict
 
 import cereal.messaging as messaging
 from cereal import car, log
-from opendbc.car.vehicle_model import ACCELERATION_DUE_TO_GRAVITY
 from openpilot.common.params import Params
 from openpilot.common.realtime import config_realtime_process, DT_MDL
 from openpilot.common.filter_simple import FirstOrderFilter
 from openpilot.common.swaglog import cloudlog
-from openpilot.selfdrive.locationd.helpers import PointBuckets, ParameterEstimator, PoseCalibrator, Pose
+from openpilot.selfdrive.controls.lib.vehicle_model import ACCELERATION_DUE_TO_GRAVITY
+from openpilot.selfdrive.locationd.helpers import PointBuckets, ParameterEstimator
+
+from openpilot.frogpilot.common.frogpilot_variables import get_frogpilot_toggles
 
 HISTORY = 5  # secs
 POINTS_PER_BUCKET = 1500
@@ -32,12 +34,12 @@ MIN_BUCKET_POINTS = np.array([100, 300, 500, 500, 500, 500, 300, 100])
 MIN_ENGAGE_BUFFER = 2  # secs
 
 VERSION = 1  # bump this to invalidate old parameter caches
-ALLOWED_CARS = ['toyota', 'hyundai', 'rivian']
+ALLOWED_CARS = ['toyota', 'hyundai']
 
 
 def slope2rot(slope):
-  sin = np.sqrt(slope ** 2 / (slope ** 2 + 1))
-  cos = np.sqrt(1 / (slope ** 2 + 1))
+  sin = np.sqrt(slope**2 / (slope**2 + 1))
+  cos = np.sqrt(1 / (slope**2 + 1))
   return np.array([[cos, -sin], [sin, cos]])
 
 
@@ -50,10 +52,9 @@ class TorqueBuckets(PointBuckets):
 
 
 class TorqueEstimator(ParameterEstimator):
-  def __init__(self, CP, decimated=False, track_all_points=False):
+  def __init__(self, CP, decimated=False):
     self.hist_len = int(HISTORY / DT_MDL)
     self.lag = 0.0
-    self.track_all_points = track_all_points  # for offline analysis, without max lateral accel or max steer torque filters
     if decimated:
       self.min_bucket_points = MIN_BUCKET_POINTS / 10
       self.min_points_total = MIN_POINTS_TOTAL_QLOG
@@ -71,13 +72,11 @@ class TorqueEstimator(ParameterEstimator):
     self.offline_friction = 0.0
     self.offline_latAccelFactor = 0.0
     self.resets = 0.0
-    self.use_params = CP.brand in ALLOWED_CARS and CP.lateralTuning.which() == 'torque'
+    self.use_params = CP.carName in ALLOWED_CARS and CP.lateralTuning.which() == 'torque'
 
     if CP.lateralTuning.which() == 'torque':
       self.offline_friction = CP.lateralTuning.torque.friction
       self.offline_latAccelFactor = CP.lateralTuning.torque.latAccelFactor
-
-    self.calibrator = PoseCalibrator()
 
     self.reset()
 
@@ -122,8 +121,7 @@ class TorqueEstimator(ParameterEstimator):
     for param in initial_params:
       self.filtered_params[param] = FirstOrderFilter(initial_params[param], self.decay, DT_MDL)
 
-  @staticmethod
-  def get_restore_key(CP, version):
+  def get_restore_key(self, CP, version):
     a, b = None, None
     if CP.lateralTuning.which() == 'torque':
       a = CP.lateralTuning.torque.friction
@@ -139,7 +137,6 @@ class TorqueEstimator(ParameterEstimator):
                                          min_points_total=self.min_points_total,
                                          points_per_bucket=POINTS_PER_BUCKET,
                                          rowsize=3)
-    self.all_torque_points = []
 
   def estimate_params(self):
     points = self.filtered_points.get_points(self.fit_points)
@@ -164,44 +161,29 @@ class TorqueEstimator(ParameterEstimator):
   def handle_log(self, t, which, msg):
     if which == "carControl":
       self.raw_points["carControl_t"].append(t + self.lag)
-      self.raw_points["lat_active"].append(msg.latActive)
+      self.raw_points["active"].append(msg.latActive)
     elif which == "carOutput":
       self.raw_points["carOutput_t"].append(t + self.lag)
-      self.raw_points["steer_torque"].append(-msg.actuatorsOutput.torque)
+      self.raw_points["steer_torque"].append(-msg.actuatorsOutput.steer)
     elif which == "carState":
       self.raw_points["carState_t"].append(t + self.lag)
-      # TODO: check if high aEgo affects resulting lateral accel
       self.raw_points["vego"].append(msg.vEgo)
       self.raw_points["steer_override"].append(msg.steeringPressed)
-    elif which == "liveCalibration":
-      self.calibrator.feed_live_calib(msg)
     elif which == "liveDelay":
       self.lag = msg.lateralDelay
-    # calculate lateral accel from past steering torque
-    elif which == "livePose":
+    elif which == "liveLocationKalman":
       if len(self.raw_points['steer_torque']) == self.hist_len:
-        device_pose = Pose.from_live_pose(msg)
-        calibrated_pose = self.calibrator.build_calibrated_pose(device_pose)
-        angular_velocity_calibrated = calibrated_pose.angular_velocity
-
-        yaw_rate = angular_velocity_calibrated.yaw
-        roll = device_pose.orientation.roll
-        # check lat active up to now (without lag compensation)
-        lat_active = np.interp(np.arange(t - MIN_ENGAGE_BUFFER, t + self.lag, DT_MDL),
-                               self.raw_points['carControl_t'], self.raw_points['lat_active']).astype(bool)
-        steer_override = np.interp(np.arange(t - MIN_ENGAGE_BUFFER, t + self.lag, DT_MDL),
-                                   self.raw_points['carState_t'], self.raw_points['steer_override']).astype(bool)
+        yaw_rate = msg.angularVelocityCalibrated.value[2]
+        roll = msg.orientationNED.value[0]
+        active = np.interp(np.arange(t - MIN_ENGAGE_BUFFER, t, DT_MDL), self.raw_points['carControl_t'], self.raw_points['active']).astype(bool)
+        steer_override = np.interp(np.arange(t - MIN_ENGAGE_BUFFER, t, DT_MDL), self.raw_points['carState_t'], self.raw_points['steer_override']).astype(bool)
         vego = np.interp(t, self.raw_points['carState_t'], self.raw_points['vego'])
-        steer = np.interp(t, self.raw_points['carOutput_t'], self.raw_points['steer_torque']).item()
-        lateral_acc = (vego * yaw_rate) - (np.sin(roll) * ACCELERATION_DUE_TO_GRAVITY).item()
-        if all(lat_active) and not any(steer_override) and (vego > MIN_VEL) and (abs(steer) > STEER_MIN_THRESHOLD):
-          if abs(lateral_acc) <= LAT_ACC_THRESHOLD:
-            self.filtered_points.add_point(steer, lateral_acc)
+        steer = np.interp(t, self.raw_points['carOutput_t'], self.raw_points['steer_torque'])
+        lateral_acc = (vego * yaw_rate) - (np.sin(roll) * ACCELERATION_DUE_TO_GRAVITY)
+        if all(active) and (not any(steer_override)) and (vego > MIN_VEL) and (abs(steer) > STEER_MIN_THRESHOLD) and (abs(lateral_acc) <= LAT_ACC_THRESHOLD):
+          self.filtered_points.add_point(float(steer), float(lateral_acc))
 
-          if self.track_all_points:
-            self.all_torque_points.append([steer, lateral_acc])
-
-  def get_msg(self, valid=True, with_points=False):
+  def get_msg(self, valid=True, with_points=False, frogpilot_toggles=None):
     msg = messaging.new_message('liveTorqueParameters')
     msg.valid = valid
     liveTorqueParameters = msg.liveTorqueParameters
@@ -229,11 +211,10 @@ class TorqueEstimator(ParameterEstimator):
     if with_points:
       liveTorqueParameters.points = self.filtered_points.get_points()[:, [0, 2]].tolist()
 
-    liveTorqueParameters.latAccelFactorFiltered = float(self.filtered_params['latAccelFactor'].x)
+    liveTorqueParameters.latAccelFactorFiltered = float(self.filtered_params['latAccelFactor'].x if not frogpilot_toggles.use_custom_latAccelFactor else frogpilot_toggles.latAccelFactor)
     liveTorqueParameters.latAccelOffsetFiltered = float(self.filtered_params['latAccelOffset'].x)
-    liveTorqueParameters.frictionCoefficientFiltered = float(self.filtered_params['frictionCoefficient'].x)
+    liveTorqueParameters.frictionCoefficientFiltered = float(self.filtered_params['frictionCoefficient'].x if not frogpilot_toggles.use_custom_friction else frogpilot_toggles.friction)
     liveTorqueParameters.totalBucketPoints = len(self.filtered_points)
-    liveTorqueParameters.calPerc = self.filtered_points.get_valid_percent()
     liveTorqueParameters.decay = self.decay
     liveTorqueParameters.maxResets = self.resets
     return msg
@@ -243,10 +224,17 @@ def main(demo=False):
   config_realtime_process([0, 1, 2, 3], 5)
 
   pm = messaging.PubMaster(['liveTorqueParameters'])
-  sm = messaging.SubMaster(['carControl', 'carOutput', 'carState', 'liveCalibration', 'livePose', 'liveDelay'], poll='livePose')
+  sm = messaging.SubMaster(['carControl', 'carOutput', 'carState', 'liveLocationKalman', 'liveDelay', 'frogpilotPlan'], poll='liveLocationKalman')
 
   params = Params()
-  estimator = TorqueEstimator(messaging.log_from_bytes(params.get("CarParams", block=True), car.CarParams))
+  with car.CarParams.from_bytes(params.get("CarParams", block=True)) as CP:
+    estimator = TorqueEstimator(CP)
+
+  # FrogPilot variables
+  frogpilot_toggles = get_frogpilot_toggles()
+
+  if not frogpilot_toggles.liveValid:
+    estimator = TorqueEstimator(CP, True)
 
   while True:
     sm.update()
@@ -256,19 +244,21 @@ def main(demo=False):
           t = sm.logMonoTime[which] * 1e-9
           estimator.handle_log(t, which, sm[which])
 
-    # 4Hz driven by livePose
+    # 4Hz driven by liveLocationKalman
     if sm.frame % 5 == 0:
-      pm.send('liveTorqueParameters', estimator.get_msg(valid=sm.all_checks()))
+      pm.send('liveTorqueParameters', estimator.get_msg(valid=sm.all_checks(), with_points=False, frogpilot_toggles=frogpilot_toggles))
 
     # Cache points every 60 seconds while onroad
     if sm.frame % 240 == 0:
-      msg = estimator.get_msg(valid=sm.all_checks(), with_points=True)
+      msg = estimator.get_msg(valid=sm.all_checks(), with_points=True, frogpilot_toggles=frogpilot_toggles)
       params.put_nonblocking("LiveTorqueParameters", msg.to_bytes())
 
+    # Update FrogPilot variables
+    if sm['frogpilotPlan'].togglesUpdated:
+      frogpilot_toggles = get_frogpilot_toggles()
 
 if __name__ == "__main__":
   import argparse
-
   parser = argparse.ArgumentParser(description='Process the --demo argument.')
   parser.add_argument('--demo', action='store_true', help='A boolean for demo mode.')
   args = parser.parse_args()

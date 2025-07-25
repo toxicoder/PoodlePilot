@@ -1,8 +1,12 @@
-#!/usr/bin/env bash
+#!/usr/bin/bash
+
+if [ -z "$BASEDIR" ]; then
+  BASEDIR="/data/openpilot"
+fi
+
+source "$BASEDIR/launch_env.sh"
 
 DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" >/dev/null && pwd )"
-
-source "$DIR/launch_env.sh"
 
 function agnos_init {
   # TODO: move this to agnos
@@ -15,6 +19,7 @@ function agnos_init {
   # udev does this, but sometimes we startup faster
   sudo chgrp gpu /dev/adsprpc-smd /dev/ion /dev/kgsl-3d0
   sudo chmod 660 /dev/adsprpc-smd /dev/ion /dev/kgsl-3d0
+  sudo chmod 0777 /cache
 
   # Check if AGNOS update is required
   if [ $(< /VERSION) != "$AGNOS_VERSION" ]; then
@@ -34,25 +39,25 @@ function launch {
   # Check to see if there's a valid overlay-based update available. Conditions
   # are as follows:
   #
-  # 1. The DIR init file has to exist, with a newer modtime than anything in
-  #    the DIR Git repo. This checks for local development work or the user
+  # 1. The BASEDIR init file has to exist, with a newer modtime than anything in
+  #    the BASEDIR Git repo. This checks for local development work or the user
   #    switching branches/forks, which should not be overwritten.
   # 2. The FINALIZED consistent file has to exist, indicating there's an update
   #    that completed successfully and synced to disk.
 
-  if [ -f "${DIR}/.overlay_init" ]; then
-    find ${DIR}/.git -newer ${DIR}/.overlay_init | grep -q '.' 2> /dev/null
+  if [ -f "${BASEDIR}/.overlay_init" ]; then
+    find ${BASEDIR}/.git -newer ${BASEDIR}/.overlay_init | grep -q '.' 2> /dev/null
     if [ $? -eq 0 ]; then
-      echo "${DIR} has been modified, skipping overlay update installation"
+      echo "${BASEDIR} has been modified, skipping overlay update installation"
     else
       if [ -f "${STAGING_ROOT}/finalized/.overlay_consistent" ]; then
         if [ ! -d /data/safe_staging/old_openpilot ]; then
           echo "Valid overlay update found, installing"
           LAUNCHER_LOCATION="${BASH_SOURCE[0]}"
 
-          mv $DIR /data/safe_staging/old_openpilot
-          mv "${STAGING_ROOT}/finalized" $DIR
-          cd $DIR
+          mv $BASEDIR /data/safe_staging/old_openpilot
+          mv "${STAGING_ROOT}/finalized" $BASEDIR
+          cd $BASEDIR
 
           echo "Restarting launch script ${LAUNCHER_LOCATION}"
           unset AGNOS_VERSION

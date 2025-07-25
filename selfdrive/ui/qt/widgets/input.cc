@@ -120,11 +120,11 @@ InputDialog::InputDialog(const QString &title, QWidget *parent, const QString &s
     eye_btn->setFixedSize(150, 120);
     QObject::connect(eye_btn, &QPushButton::toggled, [=](bool checked) {
       if (checked) {
-        eye_btn->setIcon(QIcon(ASSET_PATH + "icons/eye_closed.svg"));
+        eye_btn->setIcon(QIcon(ASSET_PATH + "img_eye_closed.svg"));
         eye_btn->setIconSize(QSize(81, 54));
         line->setEchoMode(QLineEdit::Password);
       } else {
-        eye_btn->setIcon(QIcon(ASSET_PATH + "icons/eye_open.svg"));
+        eye_btn->setIcon(QIcon(ASSET_PATH + "img_eye_open.svg"));
         eye_btn->setIconSize(QSize(81, 44));
         line->setEchoMode(QLineEdit::Normal);
       }
@@ -141,19 +141,25 @@ InputDialog::InputDialog(const QString &title, QWidget *parent, const QString &s
   QObject::connect(k, &Keyboard::emitEnter, this, &InputDialog::handleEnter);
   QObject::connect(k, &Keyboard::emitBackspace, this, [=]() {
     line->backspace();
+    updateMaxLengthSublabel(line->text());
   });
   QObject::connect(k, &Keyboard::emitKey, this, [=](const QString &key) {
-    line->insert(key.left(1));
+    if (line->text().length() < maxLength || maxLength == DEFAULT_MAX_LENGTH) {
+      line->insert(key.left(1));
+      updateMaxLengthSublabel(line->text());
+    }
   });
 
   main_layout->addWidget(k, 2, Qt::AlignBottom);
 }
 
 QString InputDialog::getText(const QString &prompt, QWidget *parent, const QString &subtitle,
-                             bool secret, int minLength, const QString &defaultText) {
-  InputDialog d(prompt, parent, subtitle, secret);
+                             bool secret, int minLength, const QString &defaultText, int maxLength) {
+  InputDialog d = InputDialog(prompt, parent, subtitle, secret);
   d.line->setText(defaultText);
   d.setMinLength(minLength);
+  d.setMaxLength(maxLength);
+  d.updateMaxLengthSublabel(defaultText);
   const int ret = d.exec();
   return ret ? d.text() : QString();
 }
@@ -186,10 +192,21 @@ void InputDialog::setMinLength(int length) {
   minLength = length;
 }
 
+// FrogPilot functions
+void InputDialog::setMaxLength(int length) {
+  maxLength = length;
+}
+
+void InputDialog::updateMaxLengthSublabel(const QString &text) {
+  if (maxLength != DEFAULT_MAX_LENGTH) {
+    sublabel->setText(tr("Characters: %1/%2").arg(text.length()).arg(maxLength));
+  }
+}
+
 // ConfirmationDialog
 
 ConfirmationDialog::ConfirmationDialog(const QString &prompt_text, const QString &confirm_text, const QString &cancel_text,
-                                       const bool rich, QWidget *parent) : DialogBase(parent) {
+                                       const bool rich, QWidget *parent, const bool is_long) : DialogBase(parent) {
   QFrame *container = new QFrame(this);
   container->setStyleSheet(R"(
     QFrame { background-color: #1B1B1B; color: #C9C9C9; }
@@ -197,7 +214,7 @@ ConfirmationDialog::ConfirmationDialog(const QString &prompt_text, const QString
     #confirm_btn:pressed { background-color: #3049F4; }
   )");
   QVBoxLayout *main_layout = new QVBoxLayout(container);
-  main_layout->setContentsMargins(32, rich ? 32 : 120, 32, 32);
+  main_layout->setContentsMargins(32, rich || is_long ? 32 : 120, 32, 32);
 
   QLabel *prompt = new QLabel(prompt_text, this);
   prompt->setWordWrap(true);
@@ -229,18 +246,18 @@ ConfirmationDialog::ConfirmationDialog(const QString &prompt_text, const QString
   outer_layout->addWidget(container);
 }
 
-bool ConfirmationDialog::alert(const QString &prompt_text, QWidget *parent) {
-  ConfirmationDialog d(prompt_text, tr("Ok"), "", false, parent);
+bool ConfirmationDialog::alert(const QString &prompt_text, QWidget *parent, bool is_long) {
+  ConfirmationDialog d = ConfirmationDialog(prompt_text, tr("Ok"), "", false, parent, is_long);
   return d.exec();
 }
 
 bool ConfirmationDialog::confirm(const QString &prompt_text, const QString &confirm_text, QWidget *parent) {
-  ConfirmationDialog d(prompt_text, confirm_text, tr("Cancel"), false, parent);
+  ConfirmationDialog d = ConfirmationDialog(prompt_text, confirm_text, tr("Cancel"), false, parent);
   return d.exec();
 }
 
 bool ConfirmationDialog::rich(const QString &prompt_text, QWidget *parent) {
-  ConfirmationDialog d(prompt_text, tr("Ok"), "", true, parent);
+  ConfirmationDialog d = ConfirmationDialog(prompt_text, tr("Ok"), "", true, parent);
   return d.exec();
 }
 
@@ -328,7 +345,7 @@ MultiOptionDialog::MultiOptionDialog(const QString &prompt_text, const QStringLi
 }
 
 QString MultiOptionDialog::getSelection(const QString &prompt_text, const QStringList &l, const QString &current, QWidget *parent) {
-  MultiOptionDialog d(prompt_text, l, current, parent);
+  MultiOptionDialog d = MultiOptionDialog(prompt_text, l, current, parent);
   if (d.exec()) {
     return d.selection;
   }

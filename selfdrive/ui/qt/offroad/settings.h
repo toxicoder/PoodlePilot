@@ -25,24 +25,42 @@ public:
 protected:
   void showEvent(QShowEvent *event) override;
 
+  // FrogPilot widgets
+  void hideEvent(QHideEvent *event) override;
+
 signals:
   void closeSettings();
   void reviewTrainingGuide();
   void showDriverView();
   void expandToggleDescription(const QString &param);
-  void scrollToToggle(const QString &param);
+
+  // FrogPilot signals
+  void closePanel();
+  void closeSubPanel();
+  void closeSubSubPanel();
+  void updateMetric(bool metric, bool bootRun=false);
+  void updateTuningLevel();
 
 private:
   QPushButton *sidebar_alert_widget;
   QWidget *sidebar_widget;
   QButtonGroup *nav_btns;
   QStackedWidget *panel_widget;
+
+  // FrogPilot variables
+  Params params;
+  Params paramsTracking{"/cache/tracking"};
+
+  bool panelOpen;
+  bool subPanelOpen;
+  bool subSubPanelOpen;
 };
 
 class DevicePanel : public ListWidget {
   Q_OBJECT
 public:
   explicit DevicePanel(SettingsWindow *parent);
+  void showEvent(QShowEvent *event) override;
 
 signals:
   void reviewTrainingGuide();
@@ -56,7 +74,6 @@ private slots:
 private:
   Params params;
   ButtonControl *pair_device;
-  ButtonControl *resetCalibBtn;
 };
 
 class TogglesPanel : public ListWidget {
@@ -65,9 +82,12 @@ public:
   explicit TogglesPanel(SettingsWindow *parent);
   void showEvent(QShowEvent *event) override;
 
+signals:
+  // FrogPilot signals
+  void updateMetric(bool metric, bool bootRun=false);
+
 public slots:
   void expandToggleDescription(const QString &param);
-  void scrollToToggle(const QString &param);
 
 private slots:
   void updateState(const UIState &s);
@@ -101,6 +121,3 @@ private:
   Params params;
   ParamWatcher *fs_watch;
 };
-
-// Forward declaration
-class FirehosePanel;

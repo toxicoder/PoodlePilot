@@ -3,7 +3,6 @@
 #include <vector>
 
 #include "selfdrive/ui/qt/network/wifi_manager.h"
-#include "selfdrive/ui/qt/prime_state.h"
 #include "selfdrive/ui/qt/widgets/input.h"
 #include "selfdrive/ui/qt/widgets/ssh_keys.h"
 #include "selfdrive/ui/qt/widgets/toggle.h"
@@ -57,16 +56,14 @@ class AdvancedNetworking : public QWidget {
   Q_OBJECT
 public:
   explicit AdvancedNetworking(QWidget* parent = 0, WifiManager* wifi = 0);
-  void setGsmVisible(bool visible);
 
 private:
   LabelControl* ipLabel;
-  ToggleControl* tetheringToggle;
+  ButtonParamControl* tetheringToggle;
   ToggleControl* roamingToggle;
   ButtonControl* editApnButton;
   ButtonControl* hiddenNetworkButton;
-  ToggleControl* cellularMeteredToggle;
-  MultiButtonControl* wifiMeteredToggle;
+  ToggleControl* meteredToggle;
   WifiManager* wifi = nullptr;
   Params params;
 
@@ -75,7 +72,7 @@ signals:
   void requestWifiScreen();
 
 public slots:
-  void toggleTethering(bool enabled);
+  void toggleTethering(int id);
   void refresh();
 };
 
@@ -84,7 +81,6 @@ class Networking : public QFrame {
 
 public:
   explicit Networking(QWidget* parent = 0, bool show_advanced = true);
-  void setPrimeType(PrimeState::Type type);
   WifiManager* wifi = nullptr;
 
 private:

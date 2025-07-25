@@ -2,29 +2,18 @@
 import argparse
 import json
 
-from opendbc.car import Bus
-from opendbc.car.fingerprints import MIGRATION
-from opendbc.car.values import PLATFORMS
+from openpilot.selfdrive.car.fingerprints import MIGRATION
+from openpilot.selfdrive.car.values import PLATFORMS
 
 
-def generate_dbc_dict() -> dict[str, str]:
-  dbc_map = {}
-  for platform in PLATFORMS.values():
-    if platform != "MOCK":
-      if Bus.pt in platform.config.dbc_dict:
-        dbc_map[platform.name] = platform.config.dbc_dict[Bus.pt]
-      elif Bus.main in platform.config.dbc_dict:
-        dbc_map[platform.name] = platform.config.dbc_dict[Bus.main]
-      elif Bus.party in platform.config.dbc_dict:
-        dbc_map[platform.name] = platform.config.dbc_dict[Bus.party]
-      else:
-        raise ValueError("Unknown main type")
+def generate_dbc_json() -> str:
+  dbc_map = {platform.name: platform.config.dbc_dict['pt'] for platform in PLATFORMS.values() if platform != "MOCK"}
 
   for m in MIGRATION:
     if MIGRATION[m] in dbc_map:
       dbc_map[m] = dbc_map[MIGRATION[m]]
 
-  return dbc_map
+  return json.dumps(dict(sorted(dbc_map.items())), indent=2)
 
 
 if __name__ == "__main__":
@@ -35,5 +24,5 @@ if __name__ == "__main__":
   args = parser.parse_args()
 
   with open(args.out, 'w') as f:
-    f.write(json.dumps(dict(sorted(generate_dbc_dict().items())), indent=2))
+    f.write(generate_dbc_json())
   print(f"Generated and written to {args.out}")

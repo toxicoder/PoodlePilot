@@ -1,13 +1,10 @@
 import os
-import platform
 from cffi import FFI
 
 import sip
 
+from openpilot.common.ffi_wrapper import suffix
 from openpilot.common.basedir import BASEDIR
-
-def suffix():
-  return ".dylib" if platform.system() == "Darwin" else ".so"
 
 
 def get_ffi():

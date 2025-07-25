@@ -1,45 +1,36 @@
 # distutils: language = c++
 # cython: language_level = 3
-import datetime
-import json
 from libcpp cimport bool
 from libcpp.string cimport string
 from libcpp.vector cimport vector
-from libcpp.optional cimport optional
 
 cdef extern from "common/params.h":
-  cpdef enum ParamKeyFlag:
+  cpdef enum ParamKeyType:
     PERSISTENT
     CLEAR_ON_MANAGER_START
     CLEAR_ON_ONROAD_TRANSITION
     CLEAR_ON_OFFROAD_TRANSITION
     DEVELOPMENT_ONLY
-    CLEAR_ON_IGNITION_ON
     ALL
-
-  cpdef enum ParamKeyType:
-    STRING
-    BOOL
-    INT
-    FLOAT
-    TIME
-    JSON
-    BYTES
 
   cdef cppclass c_Params "Params":
     c_Params(string) except + nogil
     string get(string, bool) nogil
     bool getBool(string, bool) nogil
+    int getInt(string, bool) nogil
+    float getFloat(string, bool) nogil
     int remove(string) nogil
     int put(string, string) nogil
     void putNonBlocking(string, string) nogil
     void putBoolNonBlocking(string, bool) nogil
+    void putIntNonBlocking(string, int) nogil
+    void putFloatNonBlocking(string, float) nogil
     int putBool(string, bool) nogil
+    int putInt(string, int) nogil
+    int putFloat(string, float) nogil
     bool checkKey(string) nogil
-    ParamKeyType getKeyType(string) nogil
-    optional[string] getKeyDefaultValue(string) nogil
     string getParamPath(string) nogil
-    void clearAll(ParamKeyFlag)
+    void clearAll(ParamKeyType)
     vector[string] allKeys()
 
 
@@ -51,22 +42,17 @@ class UnknownKeyName(Exception):
 
 cdef class Params:
   cdef c_Params* p
-  cdef str d
 
   def __cinit__(self, d=""):
     cdef string path = <string>d.encode()
     with nogil:
       self.p = new c_Params(path)
-    self.d = d
-
-  def __reduce__(self):
-    return (type(self), (self.d,))
 
   def __dealloc__(self):
     del self.p
 
-  def clear_all(self, tx_flag=ParamKeyFlag.ALL):
-    self.p.clearAll(tx_flag)
+  def clear_all(self, tx_type=ParamKeyType.ALL):
+    self.p.clearAll(tx_type)
 
   def check_key(self, key):
     key = ensure_bytes(key)
@@ -74,51 +60,41 @@ cdef class Params:
       raise UnknownKeyName(key)
     return key
 
-  def cast(self, t, value, default):
-    if value is None:
-      return None
-    try:
-      if t == STRING:
-        return value.decode("utf-8")
-      elif t == BOOL:
-        return value == b"1"
-      elif t == INT:
-        return int(value)
-      elif t == FLOAT:
-        return float(value)
-      elif t == TIME:
-        return datetime.datetime.fromisoformat(value.decode("utf-8"))
-      elif t == JSON:
-        return json.loads(value)
-      elif t == BYTES:
-        return value
-      else:
-        raise TypeError()
-    except (TypeError, ValueError):
-      return self.cast(t, default, None)
-
-  def get(self, key, bool block=False, bool return_default=False):
+  def get(self, key, bool block=False, encoding=None):
     cdef string k = self.check_key(key)
-    cdef ParamKeyType t = self.p.getKeyType(k)
     cdef string val
     with nogil:
       val = self.p.get(k, block)
 
-    default_val = self.get_default_value(k) if return_default else None
     if val == b"":
       if block:
         # If we got no value while running in blocked mode
         # it means we got an interrupt while waiting
         raise KeyboardInterrupt
       else:
-        return self.cast(t, default_val, None)
-    return self.cast(t, val, default_val)
+        return None
+
+    return val if encoding is None else val.decode(encoding)
 
   def get_bool(self, key, bool block=False):
     cdef string k = self.check_key(key)
     cdef bool r
     with nogil:
       r = self.p.getBool(k, block)
+    return r
+
+  def get_int(self, key, bool block=False):
+    cdef string k = self.check_key(key)
+    cdef int r
+    with nogil:
+      r = self.p.getInt(k, block)
+    return r
+
+  def get_float(self, key, bool block=False):
+    cdef string k = self.check_key(key)
+    cdef float r
+    with nogil:
+      r = self.p.getFloat(k, block)
     return r
 
   def put(self, key, dat):
@@ -138,6 +114,16 @@ cdef class Params:
     with nogil:
       self.p.putBool(k, val)
 
+  def put_int(self, key, int val):
+    cdef string k = self.check_key(key)
+    with nogil:
+      self.p.putInt(k, val)
+
+  def put_float(self, key, float val):
+    cdef string k = self.check_key(key)
+    with nogil:
+      self.p.putFloat(k, val)
+
   def put_nonblocking(self, key, dat):
     cdef string k = self.check_key(key)
     cdef string dat_bytes = ensure_bytes(dat)
@@ -149,6 +135,16 @@ cdef class Params:
     with nogil:
       self.p.putBoolNonBlocking(k, val)
 
+  def put_int_nonblocking(self, key, int val):
+    cdef string k = self.check_key(key)
+    with nogil:
+      self.p.putIntNonBlocking(k, val)
+
+  def put_float_nonblocking(self, key, float val):
+    cdef string k = self.check_key(key)
+    with nogil:
+      self.p.putFloatNonBlocking(k, val)
+
   def remove(self, key):
     cdef string k = self.check_key(key)
     with nogil:
@@ -158,12 +154,5 @@ cdef class Params:
     cdef string key_bytes = ensure_bytes(key)
     return self.p.getParamPath(key_bytes).decode("utf-8")
 
-  def get_type(self, key):
-    return self.p.getKeyType(self.check_key(key))
-
   def all_keys(self):
     return self.p.allKeys()
-
-  def get_default_value(self, key):
-    cdef optional[string] default = self.p.getKeyDefaultValue(self.check_key(key))
-    return default.value() if default.has_value() else None
