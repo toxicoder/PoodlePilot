@@ -20,7 +20,7 @@ env.Command(capnp_cpp_targets,
             f"capnpc --src-prefix={cereal_dir.path} $SOURCES -o c++:{gen_cpp_dir.path}")
 
 cereal_cpp_lib_sources = [t for t in capnp_cpp_targets if str(t).endswith('.c++')]
-cereal_cpp_lib = env.Library('cereal_cpp', cereal_cpp_lib_sources)
+cereal = env.Library('cereal', cereal_cpp_lib_sources)
 
 
 # Build User Profile Protobuf (Python)
@@ -82,4 +82,4 @@ socketmaster = env.Library('socketmaster', ['messaging/socketmaster.cc'])
 
 # Export the C++ library and potentially the generated Python file as a build artifact if needed by other SCons scripts
 # For Python, usually being generated is enough for direct Python imports during runtime.
-Export('cereal_cpp_lib', 'socketmaster', 'user_profile_pb2_py_in_cereal_dir') # Export the generated python file node
+Export('cereal', 'socketmaster') # Export the generated python file node
