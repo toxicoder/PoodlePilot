@@ -22,6 +22,15 @@ static void method_call_handler(FlMethodChannel* channel, FlMethodCall* method_c
   }
 }
 
+#include <vector>
+
+void flutter_bridge_send_camera_frame(const uint8_t* data, int width, int height) {
+  if (channel != nullptr) {
+    g_autoptr(FlValue) camera_frame = fl_value_new_uint8_list(data, width * height * 3 / 2);
+    fl_method_channel_invoke_method(channel, "updateCameraFrame", camera_frame, nullptr, nullptr, nullptr);
+  }
+}
+
 static void send_data() {
   while (true) {
     std::this_thread::sleep_for(std::chrono::seconds(1));

@@ -5,6 +5,7 @@
 
 #include "common/swaglog.h"
 #include "system/camerad/cameras/spectra.h"
+#include "selfdrive/ui/flutter_bridge.h"
 
 
 void CameraBuf::init(cl_device_id device_id, cl_context context, SpectraCamera *cam, VisionIpcServer * v, int frame_cnt, VisionStreamType type) {
@@ -58,6 +59,11 @@ void CameraBuf::sendFrameToVipc() {
   };
   cur_yuv_buf->set_frame_id(cur_frame_data.frame_id);
   vipc_server->send(cur_yuv_buf, &extra);
+
+  // Send camera frame to Flutter UI
+  if (stream_type == VISION_STREAM_ROAD) {
+    flutter_bridge_send_camera_frame(cur_yuv_buf->y, cur_yuv_buf->width, cur_yuv_buf->height);
+  }
 }
 
 // common functions
